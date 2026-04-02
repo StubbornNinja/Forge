@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: forge-searxng
+    ports:
+      - "8199:8080"
+    volumes:
+      - searxng-data:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8199/
+    restart: unless-stopped
+
+volumes:
+  searxng-data:
