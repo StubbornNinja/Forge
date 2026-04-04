@@ -19,8 +19,8 @@ pub fn insert_message(conn: &Connection, msg: &NewMessage) -> Result<Message> {
     let attachments_json = msg.attachments.as_ref().map(|v| serde_json::to_string(v).unwrap_or_default());
 
     conn.execute(
-        "INSERT INTO messages (id, conversation_id, role, content, token_count, model, tool_calls, tool_call_id, attachments, sort_order, parent_message_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        "INSERT INTO messages (id, conversation_id, role, content, token_count, model, tool_calls, tool_call_id, attachments, sort_order, parent_message_id, thinking_disabled)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             id,
             msg.conversation_id,
@@ -33,6 +33,7 @@ pub fn insert_message(conn: &Connection, msg: &NewMessage) -> Result<Message> {
             attachments_json,
             next_order,
             msg.parent_message_id,
+            msg.thinking_disabled as i32,
         ],
     )?;
 
@@ -55,12 +56,13 @@ pub fn insert_message(conn: &Connection, msg: &NewMessage) -> Result<Message> {
         attachments: msg.attachments.clone(),
         sort_order: next_order,
         parent_message_id: msg.parent_message_id.clone(),
+        thinking_disabled: msg.thinking_disabled,
     })
 }
 
 pub fn get_messages(conn: &Connection, conversation_id: &str) -> Result<Vec<Message>> {
     let mut stmt = conn.prepare(
-        "SELECT id, conversation_id, role, content, created_at, token_count, model, tool_calls, tool_call_id, attachments, sort_order, parent_message_id
+        "SELECT id, conversation_id, role, content, created_at, token_count, model, tool_calls, tool_call_id, attachments, sort_order, parent_message_id, thinking_disabled
          FROM messages
          WHERE conversation_id = ?1
          ORDER BY sort_order ASC",
@@ -69,6 +71,7 @@ pub fn get_messages(conn: &Connection, conversation_id: &str) -> Result<Vec<Mess
     let rows = stmt.query_map(params![conversation_id], |row| {
         let tool_calls_str: Option<String> = row.get(7)?;
         let attachments_str: Option<String> = row.get(9)?;
+        let thinking_disabled_int: i32 = row.get::<_, Option<i32>>(12)?.unwrap_or(0);
 
         Ok(Message {
             id: row.get(0)?,
@@ -83,6 +86,7 @@ pub fn get_messages(conn: &Connection, conversation_id: &str) -> Result<Vec<Mess
             attachments: attachments_str.and_then(|s| serde_json::from_str(&s).ok()),
             sort_order: row.get(10)?,
             parent_message_id: row.get(11)?,
+            thinking_disabled: thinking_disabled_int != 0,
         })
     })?;
 
@@ -151,6 +155,7 @@ mod tests {
                 tool_call_id: None,
                 attachments: None,
                 parent_message_id: None,
+                thinking_disabled: false,
             },
         )
         .unwrap();
@@ -168,6 +173,7 @@ mod tests {
                 tool_call_id: None,
                 attachments: None,
                 parent_message_id: None,
+                thinking_disabled: false,
             },
         )
         .unwrap();
@@ -196,6 +202,7 @@ mod tests {
                 tool_call_id: None,
                 attachments: None,
                 parent_message_id: None,
+                thinking_disabled: false,
             },
         )
         .unwrap();
@@ -222,6 +229,7 @@ mod tests {
                 tool_call_id: None,
                 attachments: None,
                 parent_message_id: None,
+                thinking_disabled: false,
             },
         )
         .unwrap();

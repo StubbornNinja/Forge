@@ -4,9 +4,12 @@ import { useConversationStore } from '../../stores/conversationStore';
 import { api } from '../../lib/tauri';
 import { MessageList } from './MessageList';
 import { InputArea } from './InputArea';
+import { MessageSkeleton } from '../shared/Skeleton';
+import { ErrorBanner } from '../shared/ErrorBanner';
+import { WelcomeView } from './WelcomeView';
 
 export function ChatView() {
-  const { activeConversationId, isDraft, setMessages, error } = useChatStore();
+  const { activeConversationId, isDraft, setMessages, messagesLoading, error, enterDraft, setPrefillInput } = useChatStore();
   const { conversations, renameConversation, deleteConversation } = useConversationStore();
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
 
@@ -106,23 +109,28 @@ export function ChatView() {
       )}
 
       {/* Error banner */}
-      {error && (
-        <div className="flex-shrink-0 px-4 py-2 bg-red-900/30 border-b border-red-800 text-red-300 text-sm">
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner error={error} />}
 
       {/* Messages, draft, or welcome state */}
       {activeConversationId ? (
         <>
           <div
-            className="flex-1 overflow-y-auto"
+            className="flex-1 overflow-y-auto relative"
+            data-scroll-container
             style={{
               maskImage: 'linear-gradient(to bottom, transparent, black 24px, black)',
               WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 24px, black)',
             }}
           >
-            <MessageList />
+            {messagesLoading ? (
+              <div className="px-4 py-6 space-y-4 max-w-3xl mx-auto w-full">
+                <MessageSkeleton role="user" />
+                <MessageSkeleton role="assistant" />
+                <MessageSkeleton role="user" />
+              </div>
+            ) : (
+              <MessageList />
+            )}
           </div>
           <InputArea />
         </>
@@ -132,15 +140,10 @@ export function ChatView() {
           <InputArea />
         </>
       ) : (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <div className="text-6xl">🔨</div>
-            <h2 className="text-xl font-semibold text-text-primary">Welcome to Forge</h2>
-            <p className="text-text-muted max-w-md">
-              Your local-first AI assistant. Start a new conversation or select one from the sidebar.
-            </p>
-          </div>
-        </div>
+        <WelcomeView onSuggestion={(text) => {
+          enterDraft();
+          setPrefillInput(text);
+        }} />
       )}
     </div>
   );

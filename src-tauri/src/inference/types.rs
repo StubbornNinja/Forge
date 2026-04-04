@@ -24,6 +24,8 @@ pub struct ChatRequest {
     pub tools: Option<Vec<ToolDefinition>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<serde_json::Value>,
     /// Extra model-specific parameters (e.g. reasoning_effort, chat_template_kwargs).
     /// Flattened into the top-level JSON request body.
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
@@ -98,6 +100,9 @@ pub struct StreamDelta {
     pub reasoning_content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCallDelta>>,
+    /// Usage data, attached to the final delta by the stream provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<Usage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

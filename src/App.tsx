@@ -6,12 +6,19 @@ import { SettingsPanel } from './components/settings/SettingsPanel';
 import { useUIStore } from './stores/uiStore';
 import { useSettingsStore } from './stores/settingsStore';
 import { useChatStore } from './stores/chatStore';
+import { useConnectionStore } from './stores/connectionStore';
+import { initSidecarEvents, cleanupSidecarEvents } from './stores/sidecarStore';
+import { useNotificationStore } from './stores/notificationStore';
+import { api } from './lib/tauri';
+import { SetupWizard } from './components/onboarding/SetupWizard';
 
 function App() {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const settings = useSettingsStore((s) => s.settings);
   const enterDraft = useChatStore((s) => s.enterDraft);
+  const { checkConnection, startPolling, stopPolling } = useConnectionStore();
+  const setShowSetupWizard = useUIStore((s) => s.setShowSetupWizard);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Apply theme to document root
@@ -23,6 +30,62 @@ function App() {
       document.documentElement.setAttribute('data-theme', theme);
     }
   }, [settings?.theme]);
+
+  // Check connection on mount, start polling, auto-start sidecar if local mode
+  useEffect(() => {
+    // Auto-start sidecar in background (non-blocking)
+    api.sidecarAutoStart().catch((err) => {
+      console.warn('Sidecar auto-start:', err);
+    });
+
+    checkConnection();
+    startPolling();
+    initSidecarEvents();
+    return () => {
+      stopPolling();
+      cleanupSidecarEvents();
+    };
+  }, [checkConnection, startPolling, stopPolling]);
+
+  // Show setup wizard on first run
+  useEffect(() => {
+    if (settings && !settings.has_completed_setup) {
+      // Existing users: if they've changed the default URL or set a model, skip
+      const isExistingUser = settings.inference_url !== 'http://localhost:1234' || !!settings.default_model;
+      if (!isExistingUser) {
+        setShowSetupWizard(true);
+      } else {
+        // Mark as completed for existing users so they don't see it again
+        useSettingsStore.getState().updateSettings({ has_completed_setup: true });
+      }
+    }
+  }, [settings?.has_completed_setup, setShowSetupWizard]);
+
+  // Check for llama.cpp updates on startup (local mode only)
+  useEffect(() => {
+    if (!settings || !settings.has_completed_setup) return;
+    const mode = settings.inference_mode || 'external';
+    if (mode !== 'local') return;
+
+    api.sidecarCheckUpdate().then((result) => {
+      if (result.update_available) {
+        useNotificationStore.getState().addNotification({
+          id: 'llama-cpp-update',
+          message: `llama.cpp ${result.latest_version} available`,
+          action: {
+            label: 'Update',
+            handler: () => {
+              useUIStore.getState().setSettingsOpen(true);
+              useNotificationStore.getState().removeNotification('llama-cpp-update');
+            },
+          },
+          dismissable: true,
+        });
+      }
+    }).catch(() => {
+      // Silently ignore — network may be unavailable
+    });
+  }, [settings?.has_completed_setup, settings?.inference_mode]);
 
   // Track fullscreen state — traffic lights disappear when fullscreen
   useEffect(() => {
@@ -93,6 +156,9 @@ function App() {
 
       {/* Settings modal */}
       <SettingsPanel />
+
+      {/* Setup wizard */}
+      <SetupWizard />
     </div>
   );
 }

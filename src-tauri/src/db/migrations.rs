@@ -81,6 +81,30 @@ const MIGRATIONS: &[Migration] = &[
             CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_message_id);
         ",
     },
+    Migration {
+        version: 5,
+        name: "thinking_disabled_flag",
+        sql: "
+            ALTER TABLE messages ADD COLUMN thinking_disabled INTEGER NOT NULL DEFAULT 0;
+        ",
+    },
+    Migration {
+        version: 6,
+        name: "models_table",
+        sql: "
+            CREATE TABLE IF NOT EXISTS models (
+                id TEXT PRIMARY KEY,
+                catalog_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                quant TEXT NOT NULL,
+                hf_repo TEXT NOT NULL,
+                downloaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+                last_used_at TEXT
+            );
+        ",
+    },
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
@@ -148,7 +172,7 @@ mod tests {
         let count: i32 = conn
             .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 4);
+        assert_eq!(count, 6);
     }
 
     #[test]

@@ -4,6 +4,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::db::models::NewMessage;
 use crate::inference::model_profile::{self, ReasoningStyle};
+use crate::inference::provider::ModelProvider;
 use crate::inference::types::{ChatMessage, ChatRequest, StreamDelta, ToolCall};
 use crate::orchestrator::agent::execute_tool_calls;
 use crate::system_prompt::builder::build_system_prompt;
@@ -53,7 +54,13 @@ pub async fn send_message(
     conversation_id: String,
     content: String,
     _attachments: Option<Vec<String>>,
+    thinking_disabled: Option<bool>,
 ) -> Result<()> {
+    let thinking_off = thinking_disabled.unwrap_or(false);
+
+    // 0. Ensure inference provider is ready (start sidecar if local mode)
+    crate::ensure_provider_ready(&app, &state).await?;
+
     // 1. Insert user message into DB
     {
         let db = state
@@ -72,6 +79,7 @@ pub async fn send_message(
                 tool_call_id: None,
                 attachments: None,
                 parent_message_id: None,
+                thinking_disabled: thinking_off,
             },
         )?;
     }
@@ -116,10 +124,13 @@ pub async fn send_message(
             .collect()
     };
 
+    // Detect model profile for reasoning/thinking behavior (needed for system prompt)
+    let profile = model_profile::detect_profile(&model);
+
     let mut chat_messages: Vec<ChatMessage> = Vec::new();
 
-    // System prompt
-    if let Some(sys_prompt) = build_system_prompt(&settings, &tool_names) {
+    // System prompt — use the per-request thinking_off flag
+    if let Some(sys_prompt) = build_system_prompt(&settings, &tool_names, Some(profile), thinking_off) {
         chat_messages.push(ChatMessage {
             role: "system".to_string(),
             content: sys_prompt,
@@ -131,6 +142,7 @@ pub async fn send_message(
 
     // History — include tool_calls from stored messages
     // Prepend timestamps to user messages so the model can track time progression
+    // Strip <think> blocks from assistant messages to save context window
     for msg in &messages {
         let content = if msg.role == "user" {
             if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&msg.created_at) {
@@ -140,6 +152,8 @@ pub async fn send_message(
             } else {
                 msg.content.clone()
             }
+        } else if msg.role == "assistant" {
+            strip_think_tags(&msg.content)
         } else {
             msg.content.clone()
         };
@@ -171,6 +185,7 @@ pub async fn send_message(
     let mut reasoning_buffer = String::new();
     let mut accumulated_tool_calls: Vec<ToolCall> = Vec::new();
     let mut cancelled = false;
+    let mut stream_usage: Option<crate::inference::types::Usage> = None;
 
     // Check if this is the first message (for title generation later)
     let is_first_message = messages.len() == 1; // only the user message we just inserted
@@ -180,9 +195,8 @@ pub async fn send_message(
         None
     };
 
-    // Detect model profile for reasoning/thinking behavior
-    let profile = model_profile::detect_profile(&model);
-    let extra = model_profile::build_extra_params(profile, settings.reasoning_effort.as_deref());
+    let reasoning_effort: Option<&str> = if thinking_off { Some("off") } else { None };
+    let extra = model_profile::build_extra_params(profile, reasoning_effort);
 
     let request = ChatRequest {
         model: model.clone(),
@@ -191,6 +205,7 @@ pub async fn send_message(
         max_tokens: Some(settings.max_tokens),
         tools: tool_defs.clone(),
         stream: Some(true),
+        stream_options: None,
         extra,
     };
 
@@ -218,10 +233,13 @@ pub async fn send_message(
                                 if let Some(ref tc_deltas) = delta.tool_calls {
                                     accumulate_tool_call_delta(&mut accumulated_tool_calls, tc_deltas);
                                 }
+                                if delta.usage.is_some() {
+                                    stream_usage = delta.usage.clone();
+                                }
                                 let _ = app.emit("stream:delta", &delta);
                             }
                             Some(Err(e)) => {
-                                let _ = app.emit("stream:error", e.to_string());
+                                let _ = app.emit("stream:error", e.to_structured());
                                 return Ok(());
                             }
                             None => break,
@@ -231,15 +249,25 @@ pub async fn send_message(
             }
         }
         Err(e) => {
-            let _ = app.emit("stream:error", e.to_string());
+            let _ = app.emit("stream:error", e.to_structured());
             return Ok(());
         }
     }
 
-    // Merge reasoning_content into content as <think> tags for DB normalization
-    if profile.reasoning_style == ReasoningStyle::ReasoningContentField && !reasoning_buffer.is_empty() {
+    // Merge reasoning_content into content as <think> tags for DB normalization.
+    // Always merge when reasoning_buffer is non-empty — llama.cpp's --reasoning-format auto
+    // routes thinking to reasoning_content regardless of model type, so InlineThinkTags models
+    // (Qwen) also need this merge when served by the embedded sidecar.
+    if !reasoning_buffer.is_empty() {
         full_content = format!("<think>{}</think>{}", reasoning_buffer, full_content);
     }
+
+    // Normalize Gemma 4 thinking format: <|channel>thought...<|channel>response → <think>...</think>response
+    if full_content.contains("<|channel>") || full_content.contains("<channel|>") {
+        full_content = normalize_gemma_thinking(&full_content);
+    }
+
+    let usage_tokens = stream_usage.map(|u| u.completion_tokens as i64);
 
     if cancelled {
         if !full_content.is_empty() {
@@ -254,12 +282,13 @@ pub async fn send_message(
                         conversation_id: conversation_id.clone(),
                         role: "assistant".to_string(),
                         content: full_content,
-                        token_count: None,
+                        token_count: usage_tokens,
                         model: Some(model),
                         tool_calls: None,
                         tool_call_id: None,
                         attachments: None,
                         parent_message_id: None,
+                    thinking_disabled: thinking_off,
                     },
                 )?
             };
@@ -287,12 +316,13 @@ pub async fn send_message(
                     conversation_id: conversation_id.clone(),
                     role: "assistant".to_string(),
                     content: full_content,
-                    token_count: None,
+                    token_count: usage_tokens,
                     model: Some(model.clone()),
                     tool_calls: None,
                     tool_call_id: None,
                     attachments: None,
                     parent_message_id: None,
+                    thinking_disabled: thinking_off,
                 },
             )?
         };
@@ -325,12 +355,13 @@ pub async fn send_message(
                 conversation_id: conversation_id.clone(),
                 role: "assistant".to_string(),
                 content: full_content.clone(),
-                token_count: None,
+                token_count: usage_tokens,
                 model: Some(model.clone()),
                 tool_calls: tool_calls_json,
                 tool_call_id: None,
                 attachments: None,
                 parent_message_id: None,
+                thinking_disabled: thinking_off,
             },
         )?;
     }
@@ -366,17 +397,21 @@ pub async fn send_message(
                     tool_call_id: tool_msg.tool_call_id.clone(),
                     attachments: None,
                     parent_message_id: None,
+                    thinking_disabled: false,
                 },
             )?;
         }
         chat_messages.extend(tool_results);
     }
 
-    // Continue loop for additional tool rounds (non-streaming)
+    // Continue loop for additional tool rounds (streaming)
     for _round in 1..MAX_TOOL_ROUNDS {
         if cancel_token.is_cancelled() {
             break;
         }
+
+        // Reset frontend streaming content before each new round
+        let _ = app.emit("stream:content_reset", ());
 
         let request = ChatRequest {
             model: model.clone(),
@@ -384,75 +419,141 @@ pub async fn send_message(
             temperature: Some(settings.temperature),
             max_tokens: Some(settings.max_tokens),
             tools: tool_defs.clone(),
-            stream: Some(false),
-            extra: model_profile::build_extra_params(profile, settings.reasoning_effort.as_deref()),
+            stream: Some(true),
+            stream_options: None,
+            extra: model_profile::build_extra_params(profile, reasoning_effort),
         };
 
-        let response = provider.chat_completion(request).await?;
-        let choice = response
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| ForgeError::Inference("No choices in response".to_string()))?;
+        let mut round_content = String::new();
+        let mut round_reasoning = String::new();
+        let mut round_tool_calls: Vec<ToolCall> = Vec::new();
+        let mut round_usage: Option<crate::inference::types::Usage> = None;
+        let mut round_cancelled = false;
 
-        let usage_tokens = response.usage.map(|u| u.completion_tokens as i64);
+        match provider.chat_completion_stream(request).await {
+            Ok(round_stream) => {
+                let mut round_stream = std::pin::pin!(round_stream);
 
-        // Check for more tool calls
-        if let Some(ref tool_calls) = choice.message.tool_calls {
-            if !tool_calls.is_empty() {
-                let tc_json = serde_json::to_value(tool_calls).ok();
-                {
-                    let db = state
-                        .db
-                        .lock()
-                        .map_err(|e| ForgeError::General(e.to_string()))?;
-                    crate::db::messages::insert_message(
-                        &db,
-                        &NewMessage {
-                            conversation_id: conversation_id.clone(),
-                            role: "assistant".to_string(),
-                            content: choice.message.content.clone(),
-                            token_count: usage_tokens,
-                            model: Some(model.clone()),
-                            tool_calls: tc_json,
-                            tool_call_id: None,
-                            attachments: None,
-                            parent_message_id: None,
-                        },
-                    )?;
+                loop {
+                    tokio::select! {
+                        _ = cancel_token.cancelled() => {
+                            round_cancelled = true;
+                            break;
+                        }
+                        chunk = round_stream.next() => {
+                            match chunk {
+                                Some(Ok(delta)) => {
+                                    if let Some(ref content_delta) = delta.content {
+                                        round_content.push_str(content_delta);
+                                    }
+                                    if let Some(ref reasoning_delta) = delta.reasoning_content {
+                                        round_reasoning.push_str(reasoning_delta);
+                                        let _ = app.emit("stream:reasoning_delta", reasoning_delta.as_str());
+                                    }
+                                    if let Some(ref tc_deltas) = delta.tool_calls {
+                                        accumulate_tool_call_delta(&mut round_tool_calls, tc_deltas);
+                                    }
+                                    if delta.usage.is_some() {
+                                        round_usage = delta.usage.clone();
+                                    }
+                                    let _ = app.emit("stream:delta", &delta);
+                                }
+                                Some(Err(e)) => {
+                                    let _ = app.emit("stream:error", e.to_structured());
+                                    return Ok(());
+                                }
+                                None => break,
+                            }
+                        }
+                    }
                 }
-
-                chat_messages.push(choice.message.clone());
-
-                let registry = state.tool_registry.read().await;
-                let tool_results = execute_tool_calls(&app, tool_calls, &registry).await?;
-
-                for tool_msg in &tool_results {
-                    let db = state
-                        .db
-                        .lock()
-                        .map_err(|e| ForgeError::General(e.to_string()))?;
-                    crate::db::messages::insert_message(
-                        &db,
-                        &NewMessage {
-                            conversation_id: conversation_id.clone(),
-                            role: "tool".to_string(),
-                            content: tool_msg.content.clone(),
-                            token_count: None,
-                            model: None,
-                            tool_calls: None,
-                            tool_call_id: tool_msg.tool_call_id.clone(),
-                            attachments: None,
-                            parent_message_id: None,
-                        },
-                    )?;
-                }
-                chat_messages.extend(tool_results);
-                continue;
+            }
+            Err(e) => {
+                let _ = app.emit("stream:error", e.to_structured());
+                return Ok(());
             }
         }
 
-        // Final text response
+        if round_cancelled {
+            break;
+        }
+
+        // Normalize thinking
+        if !round_reasoning.is_empty() && profile.reasoning_style == ReasoningStyle::ReasoningContentField {
+            round_content = format!("<think>{}</think>{}", round_reasoning, round_content);
+        }
+        if round_content.contains("<|channel>") || round_content.contains("<channel|>") {
+            round_content = normalize_gemma_thinking(&round_content);
+        }
+
+        let round_tokens = round_usage.map(|u| u.completion_tokens as i64);
+
+        let has_more_tool_calls = !round_tool_calls.is_empty()
+            && round_tool_calls.iter().any(|tc| !tc.function.name.is_empty());
+
+        if has_more_tool_calls {
+            // Save intermediate assistant message with tool calls
+            let tc_json = serde_json::to_value(&round_tool_calls).ok();
+            {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| ForgeError::General(e.to_string()))?;
+                crate::db::messages::insert_message(
+                    &db,
+                    &NewMessage {
+                        conversation_id: conversation_id.clone(),
+                        role: "assistant".to_string(),
+                        content: round_content.clone(),
+                        token_count: round_tokens,
+                        model: Some(model.clone()),
+                        tool_calls: tc_json,
+                        tool_call_id: None,
+                        attachments: None,
+                        parent_message_id: None,
+                    thinking_disabled: thinking_off,
+                    },
+                )?;
+            }
+
+            chat_messages.push(ChatMessage {
+                role: "assistant".to_string(),
+                content: round_content,
+                reasoning_content: None,
+                tool_calls: Some(round_tool_calls),
+                tool_call_id: None,
+            });
+
+            // Execute tools
+            let registry = state.tool_registry.read().await;
+            let tool_results = execute_tool_calls(&app, chat_messages.last().unwrap().tool_calls.as_ref().unwrap(), &registry).await?;
+
+            for tool_msg in &tool_results {
+                let db = state
+                    .db
+                    .lock()
+                    .map_err(|e| ForgeError::General(e.to_string()))?;
+                crate::db::messages::insert_message(
+                    &db,
+                    &NewMessage {
+                        conversation_id: conversation_id.clone(),
+                        role: "tool".to_string(),
+                        content: tool_msg.content.clone(),
+                        token_count: None,
+                        model: None,
+                        tool_calls: None,
+                        tool_call_id: tool_msg.tool_call_id.clone(),
+                        attachments: None,
+                        parent_message_id: None,
+                    thinking_disabled: thinking_off,
+                    },
+                )?;
+            }
+            chat_messages.extend(tool_results);
+            continue;
+        }
+
+        // Final text response — save and emit
         let assistant_msg = {
             let db = state
                 .db
@@ -463,27 +564,18 @@ pub async fn send_message(
                 &NewMessage {
                     conversation_id: conversation_id.clone(),
                     role: "assistant".to_string(),
-                    content: choice.message.content.clone(),
-                    token_count: usage_tokens,
+                    content: round_content,
+                    token_count: round_tokens,
                     model: Some(model.clone()),
                     tool_calls: None,
                     tool_call_id: None,
                     attachments: None,
                     parent_message_id: None,
+                    thinking_disabled: thinking_off,
                 },
             )?
         };
 
-        // Emit the final response
-        let _ = app.emit(
-            "stream:delta",
-            &StreamDelta {
-                role: None,
-                content: Some(assistant_msg.content.clone()),
-                reasoning_content: None,
-                tool_calls: None,
-            },
-        );
         let _ = app.emit("stream:end", &assistant_msg);
 
         // Generate title for new conversations
@@ -502,9 +594,57 @@ pub async fn send_message(
     // Exhausted all rounds
     let _ = app.emit(
         "stream:error",
-        "Reached maximum tool call rounds".to_string(),
+        ForgeError::Inference("Reached maximum tool call rounds".to_string()).to_structured(),
     );
     Ok(())
+}
+
+/// Strip `<think>...</think>` blocks from content for sending back in conversation history.
+fn strip_think_tags(content: &str) -> String {
+    let mut result = content.to_string();
+    while let Some(start) = result.find("<think>") {
+        if let Some(end) = result.find("</think>") {
+            result = format!("{}{}", &result[..start], &result[end + 8..]);
+        } else {
+            // Incomplete think block — remove from <think> onward
+            result = result[..start].to_string();
+            break;
+        }
+    }
+    result.trim().to_string()
+}
+
+/// Normalize Gemma 4 thinking format to standard <think> tags.
+/// Handles all known channel tag variants:
+///   `<|channel>thought ...<|channel>response`
+///   `<|channel>thought ...<channel|>response`
+/// Output: `<think>...</think>response`
+fn normalize_gemma_thinking(content: &str) -> String {
+    // First, normalize all channel tag variants to a single canonical form
+    let normalized = content
+        .replace("<channel|>", "<|channel>")
+        .replace("<|channel |>", "<|channel>")
+        .replace("< |channel>", "<|channel>");
+
+    let parts: Vec<&str> = normalized.split("<|channel>").collect();
+    if parts.len() >= 3 {
+        let thinking = parts[1].trim_start_matches("thought").trim();
+        let response: String = parts[2..].join("");
+        if thinking.is_empty() {
+            response.trim().to_string()
+        } else {
+            format!("<think>{}</think>{}", thinking, response.trim())
+        }
+    } else if parts.len() == 2 {
+        let thinking = parts[1].trim_start_matches("thought").trim();
+        if thinking.is_empty() {
+            parts[0].to_string()
+        } else {
+            format!("<think>{}</think>{}", thinking, parts[0].trim())
+        }
+    } else {
+        content.to_string()
+    }
 }
 
 /// Extract a clean title from potentially verbose model output.
@@ -512,6 +652,11 @@ pub async fn send_message(
 /// since thinking models dump reasoning first and the actual answer comes last.
 fn clean_title(raw: &str) -> String {
     let mut text = raw.to_string();
+
+    // Normalize Gemma 4 format first
+    if text.contains("<|channel>") {
+        text = normalize_gemma_thinking(&text);
+    }
 
     // Strip <think>...</think> blocks (complete)
     while let Some(start) = text.find("<think>") {
@@ -628,16 +773,16 @@ fn spawn_title_generation(
             user_message
         };
 
-        // Detect title model profile for thinking suppression
+        // Detect title model profile — always disable thinking for title gen
         let title_profile = model_profile::detect_profile(&title_model);
-        let title_extra = model_profile::build_title_extra_params(title_profile);
+        let title_extra = model_profile::build_extra_params(title_profile, Some("off"));
 
-        // Use /no_think prefix only for models that need it (inline think tags with no param suppression)
-        let system_content = if model_profile::needs_no_think_prefix(title_profile) {
-            "/no_think\nYou generate short titles. Respond with ONLY the title, nothing else.".to_string()
-        } else {
-            "You generate short titles. Respond with ONLY the title, nothing else.".to_string()
-        };
+        // Build system prompt: /no_think for Qwen + universal instruction for all models
+        let mut system_content = String::new();
+        if model_profile::needs_no_think_prefix(title_profile) {
+            system_content.push_str("/no_think\n");
+        }
+        system_content.push_str("You generate short titles. Respond with ONLY the title, nothing else. Do not use any thinking or reasoning blocks.");
 
         let request = ChatRequest {
             model: title_model,
@@ -661,6 +806,7 @@ fn spawn_title_generation(
             max_tokens: Some(30),
             tools: None,
             stream: Some(false),
+            stream_options: None,
             extra: title_extra,
         };
 

@@ -3,11 +3,12 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useUIStore } from '../../stores/uiStore';
 import { ModelConfig } from './ModelConfig';
 import { GeneralConfig } from './GeneralConfig';
+import { SettingsSkeleton } from '../shared/Skeleton';
 
 export function SettingsPanel() {
   const { settingsOpen, setSettingsOpen } = useUIStore();
   const { settings, loading, loadSettings } = useSettingsStore();
-  const [activeTab, setActiveTab] = useState<'general' | 'model'>('model');
+  const [advancedMode, setAdvancedMode] = useState(false);
 
   useEffect(() => {
     if (settingsOpen && !settings) {
@@ -40,36 +41,32 @@ export function SettingsPanel() {
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-[var(--glass-border)] px-6">
-          <button
-            onClick={() => setActiveTab('model')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'model'
-                ? 'border-accent text-accent'
-                : 'border-transparent text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            Model
-          </button>
-          <button
-            onClick={() => setActiveTab('general')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'general'
-                ? 'border-accent text-accent'
-                : 'border-transparent text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            General
-          </button>
-        </div>
-
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
           {loading ? (
-            <div className="text-center text-text-muted py-8">Loading settings...</div>
+            <SettingsSkeleton />
           ) : settings ? (
-            activeTab === 'model' ? <ModelConfig /> : <GeneralConfig />
+            <div className="space-y-8">
+              {/* Connection & Model — always shown */}
+              <ModelConfig mode={advancedMode ? 'advanced' : 'simple'} />
+
+              {/* Advanced sections */}
+              {advancedMode && (
+                <div className="animate-fadeIn">
+                  <GeneralConfig />
+                </div>
+              )}
+
+              {/* Mode toggle */}
+              <div className="pt-2 border-t border-[var(--glass-border)]">
+                <button
+                  onClick={() => setAdvancedMode(!advancedMode)}
+                  className="text-sm text-text-muted hover:text-accent transition-colors"
+                >
+                  {advancedMode ? 'Show simple settings' : 'Show advanced settings'}
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="text-center text-text-muted py-8">Failed to load settings</div>
           )}

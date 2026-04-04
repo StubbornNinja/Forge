@@ -11,12 +11,19 @@ import type {
   ModelInfo,
   SearchResult,
   FileMetadata,
+  StructuredError,
+  CatalogModel,
+  InstalledModel,
+  SidecarStatusInfo,
+  SystemInfo,
+  ModelDownloadProgress,
+  UpdateCheckResult,
 } from './types';
 
 // Invoke wrappers — one per IPC command
 export const api = {
-  sendMessage: (conversationId: string, content: string, attachments?: string[]) =>
-    invoke<void>('send_message', { conversationId, content, attachments }),
+  sendMessage: (conversationId: string, content: string, attachments?: string[], thinkingDisabled?: boolean) =>
+    invoke<void>('send_message', { conversationId, content, attachments, thinkingDisabled }),
 
   stopGeneration: () =>
     invoke<void>('stop_generation'),
@@ -53,6 +60,50 @@ export const api = {
 
   uploadFile: (path: string) =>
     invoke<FileMetadata>('upload_file', { path }),
+
+  // Sidecar
+  sidecarEnsureBinary: () =>
+    invoke<{ path: string; version: string; exists: boolean }>('sidecar_ensure_binary'),
+
+  sidecarBinaryStatus: () =>
+    invoke<{ path: string; version: string; exists: boolean }>('sidecar_binary_status'),
+
+  sidecarStart: (modelPath: string, extraArgs?: string[]) =>
+    invoke<void>('sidecar_start', { modelPath, extraArgs }),
+
+  sidecarStop: () =>
+    invoke<void>('sidecar_stop'),
+
+  sidecarStatus: () =>
+    invoke<SidecarStatusInfo>('sidecar_status'),
+
+  sidecarAutoStart: () =>
+    invoke<void>('sidecar_auto_start'),
+
+  sidecarCheckUpdate: () =>
+    invoke<UpdateCheckResult>('sidecar_check_update'),
+
+  sidecarUpdateBinary: (tag: string) =>
+    invoke<{ path: string; version: string; exists: boolean }>('sidecar_update_binary', { tag }),
+
+  // Models
+  listCatalogModels: () =>
+    invoke<CatalogModel[]>('list_catalog_models'),
+
+  listInstalledModels: () =>
+    invoke<InstalledModel[]>('list_installed_models'),
+
+  downloadModel: (catalogId: string, quant: string) =>
+    invoke<InstalledModel>('download_model', { catalogId, quant }),
+
+  cancelModelDownload: () =>
+    invoke<void>('cancel_model_download'),
+
+  deleteModel: (modelId: string) =>
+    invoke<void>('delete_model', { modelId }),
+
+  getSystemInfo: () =>
+    invoke<SystemInfo>('get_system_info'),
 };
 
 // Event listeners for streaming
@@ -63,8 +114,8 @@ export const events = {
   onStreamEnd: (handler: (msg: Message) => void): Promise<UnlistenFn> =>
     listen<Message>('stream:end', (event) => handler(event.payload)),
 
-  onStreamError: (handler: (error: string) => void): Promise<UnlistenFn> =>
-    listen<string>('stream:error', (event) => handler(event.payload)),
+  onStreamError: (handler: (error: string | StructuredError) => void): Promise<UnlistenFn> =>
+    listen<string | StructuredError>('stream:error', (event) => handler(event.payload)),
 
   onToolCall: (handler: (call: ToolCallEvent) => void): Promise<UnlistenFn> =>
     listen<ToolCallEvent>('tool:call', (event) => handler(event.payload)),
@@ -77,4 +128,16 @@ export const events = {
 
   onConversationTitleUpdated: (handler: (data: { id: string; title: string }) => void): Promise<UnlistenFn> =>
     listen<{ id: string; title: string }>('conversation:title-updated', (event) => handler(event.payload)),
+
+  onStreamContentReset: (handler: () => void): Promise<UnlistenFn> =>
+    listen<void>('stream:content_reset', () => handler()),
+
+  onSidecarStatus: (handler: (status: SidecarStatusInfo) => void): Promise<UnlistenFn> =>
+    listen<SidecarStatusInfo>('sidecar:status', (event) => handler(event.payload)),
+
+  onModelDownloadProgress: (handler: (progress: ModelDownloadProgress) => void): Promise<UnlistenFn> =>
+    listen<ModelDownloadProgress>('model:download-progress', (event) => handler(event.payload)),
+
+  onSidecarDownloadProgress: (handler: (progress: { downloaded_bytes: number; total_bytes: number; phase: string }) => void): Promise<UnlistenFn> =>
+    listen<{ downloaded_bytes: number; total_bytes: number; phase: string }>('sidecar:download-progress', (event) => handler(event.payload)),
 };

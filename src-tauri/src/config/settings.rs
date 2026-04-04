@@ -17,6 +17,16 @@ pub struct AppSettings {
     pub custom_system_prompt: Option<String>,
     pub title_model: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub search_backend: Option<String>,
+    pub brave_api_key: Option<String>,
+    #[serde(default)]
+    pub has_completed_setup: bool,
+    #[serde(default)]
+    pub show_thinking_override: bool,
+    /// "local" | "external" | "auto"
+    pub inference_mode: Option<String>,
+    /// ID of the installed local model to use
+    pub local_model_id: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -34,6 +44,12 @@ impl Default for AppSettings {
             custom_system_prompt: None,
             title_model: None,
             reasoning_effort: None,
+            search_backend: None,
+            brave_api_key: None,
+            has_completed_setup: false,
+            show_thinking_override: false,
+            inference_mode: None,
+            local_model_id: None,
         }
     }
 }
@@ -61,6 +77,12 @@ pub fn load_settings(conn: &Connection) -> Result<AppSettings> {
             "custom_system_prompt" => settings.custom_system_prompt = if value.is_empty() { None } else { Some(value) },
             "title_model" => settings.title_model = if value.is_empty() { None } else { Some(value) },
             "reasoning_effort" => settings.reasoning_effort = if value.is_empty() { None } else { Some(value) },
+            "search_backend" => settings.search_backend = if value.is_empty() { None } else { Some(value) },
+            "brave_api_key" => settings.brave_api_key = if value.is_empty() { None } else { Some(value) },
+            "has_completed_setup" => settings.has_completed_setup = value == "true",
+            "show_thinking_override" => settings.show_thinking_override = value == "true",
+            "inference_mode" => settings.inference_mode = if value.is_empty() { None } else { Some(value) },
+            "local_model_id" => settings.local_model_id = if value.is_empty() { None } else { Some(value) },
             _ => {}
         }
     }
@@ -82,6 +104,12 @@ pub fn save_settings(conn: &Connection, settings: &AppSettings) -> Result<()> {
         ("custom_system_prompt", settings.custom_system_prompt.clone().unwrap_or_default()),
         ("title_model", settings.title_model.clone().unwrap_or_default()),
         ("reasoning_effort", settings.reasoning_effort.clone().unwrap_or_default()),
+        ("search_backend", settings.search_backend.clone().unwrap_or_default()),
+        ("brave_api_key", settings.brave_api_key.clone().unwrap_or_default()),
+        ("has_completed_setup", settings.has_completed_setup.to_string()),
+        ("show_thinking_override", settings.show_thinking_override.to_string()),
+        ("inference_mode", settings.inference_mode.clone().unwrap_or_default()),
+        ("local_model_id", settings.local_model_id.clone().unwrap_or_default()),
     ];
 
     for (key, value) in pairs {

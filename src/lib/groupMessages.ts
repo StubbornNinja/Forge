@@ -1,10 +1,18 @@
 import type { Message, ToolCall } from './types';
 import { parseThinking } from './parseThinking';
 
+/** A single step in the agent's chain of thought / tool use. */
+export type ActivityStep =
+  | { type: 'thinking'; content: string }
+  | { type: 'tool_call'; toolCall: ToolCall; toolResult?: Message };
+
 export interface AgentActivity {
+  /** Ordered steps — thinking and tool calls interleaved as they occurred. */
+  steps: ActivityStep[];
+  /** Flat reference for summary generation. */
+  allToolCalls: ToolCall[];
+  /** Keep for backward compat with streaming display. */
   thinking: string | null;
-  toolCalls: ToolCall[];
-  toolResults: Message[];
   intermediateAssistants: Message[];
 }
 
@@ -17,17 +25,41 @@ export interface MessageGroup {
   visibleContent: string;
 }
 
+function createActivity(): AgentActivity {
+  return {
+    steps: [],
+    allToolCalls: [],
+    thinking: null,
+    intermediateAssistants: [],
+  };
+}
+
+function addThinking(activity: AgentActivity, thinking: string | null) {
+  if (!thinking) return;
+  activity.steps.push({ type: 'thinking', content: thinking });
+  // Also accumulate flat thinking for backward compat
+  if (activity.thinking) {
+    activity.thinking += '\n\n' + thinking;
+  } else {
+    activity.thinking = thinking;
+  }
+}
+
+function addToolCalls(activity: AgentActivity, toolCalls: ToolCall[], toolResults: Message[]) {
+  for (const tc of toolCalls) {
+    const result = toolResults.find(r => r.tool_call_id === tc.id);
+    activity.steps.push({ type: 'tool_call', toolCall: tc, toolResult: result });
+    activity.allToolCalls.push(tc);
+  }
+}
+
 /**
  * Groups a flat message array into logical "turns" for rendering.
  *
  * A turn consists of:
  * - An optional user message
- * - Optional agent activity (thinking, tool calls, tool results, intermediate assistants)
+ * - Optional agent activity (thinking and tool calls interleaved in order)
  * - A final assistant message with the actual response
- *
- * This collapses the verbose sequence of:
- *   user -> assistant(tool_calls) -> tool(result) -> ... -> assistant(final)
- * into a single group that can be rendered compactly.
  */
 export function groupMessages(messages: Message[]): MessageGroup[] {
   const groups: MessageGroup[] = [];
@@ -57,46 +89,49 @@ export function groupMessages(messages: Message[]): MessageGroup[] {
       const hasToolCalls = msg.tool_calls && msg.tool_calls.length > 0;
 
       if (hasToolCalls) {
-        // Intermediate assistant message with tool calls.
-        // Collect all activity until we find the final assistant response.
+        const activity = createActivity();
         const { thinking } = parseThinking(msg.content);
-        const activity: AgentActivity = {
-          thinking,
-          toolCalls: msg.tool_calls || [],
-          toolResults: [],
-          intermediateAssistants: [msg],
-        };
+        addThinking(activity, thinking);
+        activity.intermediateAssistants.push(msg);
 
+        // Collect tool results for this round
         i++;
+        const roundResults: Message[] = [];
+        while (i < messages.length && messages[i].role === 'tool') {
+          roundResults.push(messages[i]);
+          i++;
+        }
+        addToolCalls(activity, msg.tool_calls || [], roundResults);
+
         let foundFinal = false;
 
-        // Collect tool results and additional rounds
+        // Continue collecting additional rounds
         while (i < messages.length) {
           const next = messages[i];
-
-          if (next.role === 'tool') {
-            activity.toolResults.push(next);
-            i++;
-            continue;
-          }
 
           if (next.role === 'assistant') {
             const nextHasToolCalls = next.tool_calls && next.tool_calls.length > 0;
 
             if (nextHasToolCalls) {
-              // Another round of tool calls
+              // Another round: thinking → tool calls → results
               const { thinking: roundThinking } = parseThinking(next.content);
-              if (roundThinking && !activity.thinking) {
-                activity.thinking = roundThinking;
-              }
-              activity.toolCalls.push(...(next.tool_calls || []));
+              addThinking(activity, roundThinking);
               activity.intermediateAssistants.push(next);
+
               i++;
+              const nextResults: Message[] = [];
+              while (i < messages.length && messages[i].role === 'tool') {
+                nextResults.push(messages[i]);
+                i++;
+              }
+              addToolCalls(activity, next.tool_calls || [], nextResults);
               continue;
             }
 
             // Final assistant response (no tool calls)
-            const { content: visibleContent } = parseThinking(next.content);
+            const { thinking: finalThinking, content: visibleContent } = parseThinking(next.content);
+            addThinking(activity, finalThinking);
+
             groups.push({
               id: next.id,
               agentActivity: activity,
@@ -112,8 +147,6 @@ export function groupMessages(messages: Message[]): MessageGroup[] {
           break;
         }
 
-        // If we never found a final assistant (e.g. stream was interrupted),
-        // emit the last intermediate as the group so it's still visible
         if (!foundFinal) {
           const last = activity.intermediateAssistants[activity.intermediateAssistants.length - 1];
           const { content: visibleContent } = parseThinking(last.content);
@@ -127,12 +160,11 @@ export function groupMessages(messages: Message[]): MessageGroup[] {
       } else {
         // Simple assistant response (no tool calls)
         const { thinking, content: visibleContent } = parseThinking(msg.content);
-        const activity = thinking ? {
-          thinking,
-          toolCalls: [],
-          toolResults: [],
-          intermediateAssistants: [],
-        } : null;
+        const activity = thinking ? (() => {
+          const a = createActivity();
+          addThinking(a, thinking);
+          return a;
+        })() : null;
 
         groups.push({
           id: msg.id,

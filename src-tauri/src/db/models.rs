@@ -33,6 +33,8 @@ pub struct Message {
     pub attachments: Option<serde_json::Value>,
     pub sort_order: i64,
     pub parent_message_id: Option<String>,
+    #[serde(default)]
+    pub thinking_disabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +48,8 @@ pub struct NewMessage {
     pub tool_call_id: Option<String>,
     pub attachments: Option<serde_json::Value>,
     pub parent_message_id: Option<String>,
+    #[serde(default)]
+    pub thinking_disabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

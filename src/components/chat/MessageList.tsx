@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import { useChatStore } from '../../stores/chatStore';
 import { MessageBubble } from './MessageBubble';
 import { StreamingIndicator } from './StreamingIndicator';
@@ -9,6 +9,7 @@ export function MessageList() {
   const { messages, isStreaming, streamingContent, streamingReasoning, activeToolCalls, toolResults } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isNearBottom, setIsNearBottom] = useState(true);
 
   const groups = useMemo(() => groupMessages(messages), [messages]);
 
@@ -18,10 +19,34 @@ export function MessageList() {
     [streamingContent]
   );
 
-  // Auto-scroll to bottom on new messages or streaming content
+  // Track scroll position to determine if user has scrolled up
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current?.closest('[data-scroll-container]');
+    if (!el) return;
+    const threshold = 100;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    setIsNearBottom(nearBottom);
+  }, []);
+
+  // Attach scroll listener to the scroll container
   useEffect(() => {
+    const el = containerRef.current?.closest('[data-scroll-container]');
+    if (!el) return;
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
+
+  // Auto-scroll only when near bottom
+  useEffect(() => {
+    if (isNearBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, streamingContent, activeToolCalls, toolResults, isNearBottom]);
+
+  const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent, activeToolCalls, toolResults]);
+    setIsNearBottom(true);
+  }, []);
 
   return (
     <div
@@ -63,9 +88,9 @@ export function MessageList() {
           agentActivity={
             (streamingReasoning || streamingParsed.thinking)
               ? {
+                  steps: [{ type: 'thinking' as const, content: streamingReasoning || streamingParsed.thinking || '' }],
+                  allToolCalls: [],
                   thinking: streamingReasoning || streamingParsed.thinking,
-                  toolCalls: [],
-                  toolResults: [],
                   intermediateAssistants: [],
                 }
               : null
@@ -80,6 +105,19 @@ export function MessageList() {
       {isStreaming && !streamingContent && !streamingReasoning && activeToolCalls.length === 0 && <StreamingIndicator />}
 
       <div ref={bottomRef} />
+
+      {/* Scroll-to-bottom button */}
+      {!isNearBottom && (
+        <button
+          onClick={scrollToBottom}
+          className="fixed-scroll-btn glass-heavy border border-[var(--glass-border-light)] rounded-full p-2 shadow-lg hover:bg-[var(--hover-bg)] transition-all animate-fadeIn"
+          aria-label="Scroll to bottom"
+        >
+          <svg className="w-4 h-4 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

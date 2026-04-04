@@ -4,6 +4,9 @@ import { useChatStore } from '../../stores/chatStore';
 import { useUIStore } from '../../stores/uiStore';
 import { ConversationItem } from './ConversationItem';
 import { SearchBar } from './SearchBar';
+import { ConversationSkeleton } from '../shared/Skeleton';
+import { ConnectionIndicator } from '../shared/ConnectionIndicator';
+import { SidebarNotifications } from '../shared/SidebarNotifications';
 import { groupConversationsByTime } from '../../lib/groupConversations';
 
 export function Sidebar() {
@@ -34,7 +37,11 @@ export function Sidebar() {
         {/* Conversation list */}
         <div className="flex-1 overflow-y-auto px-1.5">
           {loading && conversations.length === 0 ? (
-            <div className="text-center text-text-muted py-8 text-sm">Loading...</div>
+            <div className="py-2">
+              {[1, 2, 3, 4].map((i) => (
+                <ConversationSkeleton key={i} />
+              ))}
+            </div>
           ) : conversations.length === 0 ? (
             <div className="text-center text-text-muted py-8 text-sm">
               No conversations yet.
@@ -60,11 +67,15 @@ export function Sidebar() {
           )}
         </div>
 
-        {/* Settings — inside the card at the bottom */}
-        <div className="flex-shrink-0 border-t border-[var(--glass-border)] px-1.5 py-1">
+        {/* Notifications — above footer */}
+        <SidebarNotifications />
+
+        {/* Footer — connection status + settings */}
+        <div className="flex-shrink-0 border-t border-[var(--glass-border)] px-1.5 py-1 flex items-center justify-between">
+          <ConnectionIndicator />
           <button
             onClick={toggleSettings}
-            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-[var(--hover-bg)] text-text-secondary hover:text-text-primary transition-colors text-sm"
+            className="flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-[var(--hover-bg)] text-text-secondary hover:text-text-primary transition-colors text-sm"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path

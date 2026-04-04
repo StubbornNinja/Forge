@@ -33,6 +33,8 @@ pub struct ModelProfile {
     pub reasoning_style: ReasoningStyle,
     pub thinking_suppression: ThinkingSuppression,
     pub supports_tool_use: bool,
+    /// Whether this model understands the `/no_think` system prompt prefix (Qwen-specific).
+    pub uses_no_think_prefix: bool,
 }
 
 /// Built-in profile registry. Order matters — first match wins.
@@ -44,6 +46,7 @@ static PROFILES: &[ModelProfile] = &[
         reasoning_style: ReasoningStyle::InlineThinkTags,
         thinking_suppression: ThinkingSuppression::ChatTemplateKwargs,
         supports_tool_use: true,
+        uses_no_think_prefix: true,
     },
     ModelProfile {
         name: "qwen3.5",
@@ -51,13 +54,24 @@ static PROFILES: &[ModelProfile] = &[
         reasoning_style: ReasoningStyle::InlineThinkTags,
         thinking_suppression: ThinkingSuppression::ChatTemplateKwargs,
         supports_tool_use: true,
+        uses_no_think_prefix: true,
     },
+    ModelProfile {
+        name: "gemma4",
+        patterns: &["gemma-4", "gemma4"],
+        reasoning_style: ReasoningStyle::InlineThinkTags,
+        thinking_suppression: ThinkingSuppression::ChatTemplateKwargs,
+        supports_tool_use: true,
+        uses_no_think_prefix: false,
+    },
+    // Legacy: GPT-OSS / Harmony — kept for backward compatibility
     ModelProfile {
         name: "gpt-oss",
         patterns: &["gpt-oss", "harmony"],
         reasoning_style: ReasoningStyle::ReasoningContentField,
         thinking_suppression: ThinkingSuppression::ReasoningEffort,
         supports_tool_use: false,
+        uses_no_think_prefix: false,
     },
 ];
 
@@ -67,6 +81,7 @@ static DEFAULT_PROFILE: ModelProfile = ModelProfile {
     reasoning_style: ReasoningStyle::None,
     thinking_suppression: ThinkingSuppression::None,
     supports_tool_use: true,
+    uses_no_think_prefix: false,
 };
 
 /// Detect the model profile from a model name string (case-insensitive).
@@ -97,12 +112,8 @@ pub fn build_extra_params(
             Some(serde_json::json!({ "reasoning_effort": effort }))
         }
         ThinkingSuppression::ChatTemplateKwargs => {
-            // Qwen3 style: map effort to enable_thinking bool
-            let enable = match reasoning_effort {
-                Some("low") | Some("off") => false,
-                Some(_) => true,
-                None => true, // default: thinking enabled
-            };
+            // Qwen3/3.5/Gemma4: thinking is binary on/off
+            let enable = !matches!(reasoning_effort, Some("off"));
             Some(serde_json::json!({
                 "chat_template_kwargs": { "enable_thinking": enable }
             }))
@@ -114,26 +125,12 @@ pub fn build_extra_params(
     }
 }
 
-/// Build extra params specifically for title generation (suppress thinking).
-pub fn build_title_extra_params(profile: &ModelProfile) -> Option<serde_json::Value> {
-    match profile.thinking_suppression {
-        ThinkingSuppression::ReasoningEffort => {
-            Some(serde_json::json!({ "reasoning_effort": "low" }))
-        }
-        ThinkingSuppression::ChatTemplateKwargs => {
-            Some(serde_json::json!({
-                "chat_template_kwargs": { "enable_thinking": false }
-            }))
-        }
-        ThinkingSuppression::None => None,
-    }
-}
 
 /// Whether a model profile should use `/no_think` prefix in the system prompt.
 /// Belt-and-suspenders: all InlineThinkTags models get this prefix because local
 /// inference servers (LM Studio, llama.cpp) may not support `chat_template_kwargs`.
 pub fn needs_no_think_prefix(profile: &ModelProfile) -> bool {
-    profile.reasoning_style == ReasoningStyle::InlineThinkTags
+    profile.uses_no_think_prefix
 }
 
 #[cfg(test)]
@@ -198,9 +195,9 @@ mod tests {
     }
 
     #[test]
-    fn test_build_extra_qwen3_low() {
+    fn test_build_extra_qwen3_off() {
         let p = detect_profile("qwen3-8b");
-        let extra = build_extra_params(p, Some("low"));
+        let extra = build_extra_params(p, Some("off"));
         assert_eq!(extra, Some(serde_json::json!({
             "chat_template_kwargs": { "enable_thinking": false }
         })));
@@ -222,20 +219,29 @@ mod tests {
         assert_eq!(extra, None);
     }
 
+
     #[test]
-    fn test_title_extra_qwen3() {
-        let p = detect_profile("qwen3-0.6b");
-        let extra = build_title_extra_params(p);
-        assert_eq!(extra, Some(serde_json::json!({
-            "chat_template_kwargs": { "enable_thinking": false }
-        })));
+    fn test_detect_gemma4() {
+        let p = detect_profile("gemma-4-27b-it");
+        assert_eq!(p.name, "gemma4");
+        assert_eq!(p.reasoning_style, ReasoningStyle::InlineThinkTags);
+        assert_eq!(p.thinking_suppression, ThinkingSuppression::ChatTemplateKwargs);
+        assert!(p.supports_tool_use);
     }
 
     #[test]
-    fn test_title_extra_gpt_oss() {
-        let p = detect_profile("gpt-oss-20b");
-        let extra = build_title_extra_params(p);
-        assert_eq!(extra, Some(serde_json::json!({ "reasoning_effort": "low" })));
+    fn test_detect_gemma4_variant() {
+        let p = detect_profile("google/gemma4-9b");
+        assert_eq!(p.name, "gemma4");
+    }
+
+    #[test]
+    fn test_build_extra_gemma4_off() {
+        let p = detect_profile("gemma-4-27b");
+        let extra = build_extra_params(p, Some("off"));
+        assert_eq!(extra, Some(serde_json::json!({
+            "chat_template_kwargs": { "enable_thinking": false }
+        })));
     }
 
     #[test]
@@ -246,6 +252,10 @@ mod tests {
 
         let p = detect_profile("qwen3-8b");
         assert!(needs_no_think_prefix(p));
+
+        // Gemma 4 does NOT use /no_think prefix (Qwen-only convention)
+        let p = detect_profile("gemma-4-27b");
+        assert!(!needs_no_think_prefix(p));
 
         // GPT-OSS uses reasoning_content field, not think tags
         let p = detect_profile("gpt-oss-20b");

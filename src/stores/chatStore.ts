@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, ToolCallEvent, ToolResultEvent } from '../lib/types';
+import type { Message, ToolCallEvent, ToolResultEvent, StructuredError } from '../lib/types';
 
 interface ChatState {
   messages: Message[];
@@ -8,9 +8,11 @@ interface ChatState {
   streamingReasoning: string;
   activeConversationId: string | null;
   isDraft: boolean;
-  error: string | null;
+  messagesLoading: boolean;
+  error: StructuredError | null;
   activeToolCalls: ToolCallEvent[];
   toolResults: ToolResultEvent[];
+  prefillInput: string | null;
 
   addMessage: (msg: Message) => void;
   updateStreamingContent: (content: string) => void;
@@ -23,10 +25,11 @@ interface ChatState {
   setMessages: (messages: Message[]) => void;
   setActiveConversation: (id: string | null) => void;
   enterDraft: () => void;
-  setError: (error: string | null) => void;
+  setError: (error: StructuredError | string | null) => void;
   clearError: () => void;
   addToolCall: (call: ToolCallEvent) => void;
   addToolResult: (result: ToolResultEvent) => void;
+  setPrefillInput: (text: string | null) => void;
 }
 
 export const useChatStore = create<ChatState>()((set) => ({
@@ -36,9 +39,11 @@ export const useChatStore = create<ChatState>()((set) => ({
   streamingReasoning: '',
   activeConversationId: null,
   isDraft: true,
+  messagesLoading: false,
   error: null,
   activeToolCalls: [],
   toolResults: [],
+  prefillInput: null,
 
   addMessage: (msg) =>
     set((state) => ({ messages: [...state.messages, msg] })),
@@ -76,16 +81,26 @@ export const useChatStore = create<ChatState>()((set) => ({
     set({ isStreaming: streaming, ...(streaming ? { streamingContent: '', streamingReasoning: '', error: null, activeToolCalls: [], toolResults: [] } : {}) }),
 
   setMessages: (messages) =>
-    set({ messages }),
+    set({ messages, messagesLoading: false }),
 
   setActiveConversation: (id) =>
-    set({ activeConversationId: id, isDraft: id === null, messages: [], streamingContent: '', streamingReasoning: '', error: null, activeToolCalls: [], toolResults: [] }),
+    set({ activeConversationId: id, isDraft: id === null, messages: [], messagesLoading: id !== null, streamingContent: '', streamingReasoning: '', error: null, activeToolCalls: [], toolResults: [] }),
 
   enterDraft: () =>
     set({ isDraft: true, activeConversationId: null, messages: [], streamingContent: '', streamingReasoning: '', error: null, activeToolCalls: [], toolResults: [] }),
 
-  setError: (error) =>
-    set({ error, isStreaming: false }),
+  setError: (error) => {
+    if (error === null) {
+      set({ error: null, isStreaming: false });
+    } else if (typeof error === 'string') {
+      set({
+        error: { category: 'general', title: 'Error', description: error },
+        isStreaming: false,
+      });
+    } else {
+      set({ error, isStreaming: false });
+    }
+  },
 
   clearError: () =>
     set({ error: null }),
@@ -95,4 +110,7 @@ export const useChatStore = create<ChatState>()((set) => ({
 
   addToolResult: (result) =>
     set((state) => ({ toolResults: [...state.toolResults, result] })),
+
+  setPrefillInput: (text) =>
+    set({ prefillInput: text }),
 }));

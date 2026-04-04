@@ -58,6 +58,7 @@ export function MessageBubble({
               activeToolCalls={activeToolCalls}
               activeToolResults={activeToolResults}
               isStreaming={!!isStreaming}
+              thinkingDisabled={message.thinking_disabled}
             />
           )}
 
@@ -75,7 +76,7 @@ export function MessageBubble({
           {!isStreaming && message.model && (
             <span className="text-xs text-text-muted">
               {message.model}
-              {message.token_count !== undefined && ` · ${message.token_count} tokens`}
+              {message.token_count != null && ` · ${message.token_count} tokens`}
             </span>
           )}
           <CopyButton

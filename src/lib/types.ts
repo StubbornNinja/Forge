@@ -11,6 +11,7 @@ export interface Message {
   attachments?: Attachment[];
   sort_order?: number;
   parent_message_id?: string;
+  thinking_disabled?: boolean;
 }
 
 export interface Conversation {
@@ -89,11 +90,77 @@ export interface AppSettings {
   custom_system_prompt?: string;
   title_model?: string;
   reasoning_effort?: string;
+  search_backend?: string;
+  brave_api_key?: string;
+  has_completed_setup?: boolean;
+  show_thinking_override?: boolean;
+  inference_mode?: string;
+  local_model_id?: string;
+}
+
+export interface CatalogModel {
+  id: string;
+  display_name: string;
+  family: string;
+  hf_repo: string;
+  variants: QuantVariant[];
+  recommended_ram_gb: number;
+  context_length: number;
+  supports_tool_use: boolean;
+  server_args: string[];
+  description: string;
+}
+
+export interface QuantVariant {
+  quant: string;
+  filename: string;
+  size_bytes: number;
+  recommended: boolean;
+}
+
+export interface InstalledModel {
+  id: string;
+  catalog_id: string;
+  filename: string;
+  file_path: string;
+  size_bytes: number;
+  quant: string;
+  hf_repo: string;
+  downloaded_at: string;
+  last_used_at?: string;
+}
+
+export interface SidecarStatusInfo {
+  status: 'stopped' | 'starting' | 'running' | 'stopping' | 'error';
+  loaded_model?: string;
+  port?: number;
+  error?: string;
+}
+
+export interface SystemInfo {
+  total_ram_gb: number;
+  available_ram_gb: number;
+  gpu_backend: string;
+  gpu_vram_mb?: number;
+}
+
+export interface ModelDownloadProgress {
+  model_id: string;
+  downloaded_bytes: number;
+  total_bytes: number;
+  speed_bps: number;
+  eta_seconds: number;
 }
 
 export interface ModelInfo {
   id: string;
   owned_by?: string;
+}
+
+export interface UpdateCheckResult {
+  current_version: string;
+  latest_version: string;
+  update_available: boolean;
 }
 
 export interface SearchResult {
@@ -110,4 +177,14 @@ export interface FileMetadata {
   mime_type: string;
   size_bytes: number;
   extracted_text?: string;
+}
+
+export interface StructuredError {
+  category: string;
+  title: string;
+  description: string;
+  action?: {
+    label: string;
+    action_type: string;
+  };
 }

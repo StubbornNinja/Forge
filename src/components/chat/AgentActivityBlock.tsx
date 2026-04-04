@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { Message, ToolCall, ToolCallEvent, ToolResultEvent } from '../../lib/types';
 import type { AgentActivity } from '../../lib/groupMessages';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { MarkdownRenderer } from '../shared/MarkdownRenderer';
 import { CopyButton } from '../shared/CopyButton';
 
@@ -21,6 +22,8 @@ interface AgentActivityBlockProps {
   /** Live tool results during streaming */
   activeToolResults?: ToolResultEvent[];
   isStreaming: boolean;
+  /** Whether this message was sent with thinking disabled */
+  thinkingDisabled?: boolean;
 }
 
 export function AgentActivityBlock({
@@ -28,22 +31,31 @@ export function AgentActivityBlock({
   activeToolCalls,
   activeToolResults,
   isStreaming,
+  thinkingDisabled,
 }: AgentActivityBlockProps) {
-  // Auto-expand during streaming, collapsed by default for stored messages
-  const [isExpanded, setIsExpanded] = useState(isStreaming);
+  // Collapsed by default — user can expand if they want to watch
+  const [isExpanded, setIsExpanded] = useState(false);
+  // Advanced setting: show thinking even in non-thinking chats (for debugging)
+  const showThinkingOverride = useSettingsStore((s) => s.settings?.show_thinking_override);
 
-  const hasStoredActivity = activity && (
-    activity.thinking || activity.toolCalls.length > 0 || activity.toolResults.length > 0
-  );
+  // Hide thinking steps if this message was sent with thinking off (unless override is on)
+  const hideThinking = thinkingDisabled && !showThinkingOverride;
+
+  const visibleSteps = activity?.steps.filter(
+    (step) => !(hideThinking && step.type === 'thinking')
+  ) ?? [];
+  const hasToolCalls = activity?.allToolCalls.length ?? 0;
+
+  const hasStoredActivity = visibleSteps.length > 0;
   const hasLiveActivity = activeToolCalls && activeToolCalls.length > 0;
 
   if (!hasStoredActivity && !hasLiveActivity) return null;
 
   // Build summary text
   const summaryParts: string[] = [];
-  if (activity?.thinking) summaryParts.push('Thought');
-  if (activity?.toolCalls.length) {
-    const uniqueTools = [...new Set(activity.toolCalls.map(tc => toolLabel(tc.function.name)))];
+  if (!hideThinking && activity?.thinking) summaryParts.push('Thought');
+  if (hasToolCalls) {
+    const uniqueTools = [...new Set(activity!.allToolCalls.map(tc => toolLabel(tc.function.name)))];
     summaryParts.push(...uniqueTools);
   }
   if (hasLiveActivity && !hasStoredActivity) {
@@ -84,24 +96,25 @@ export function AgentActivityBlock({
         <span>{isStreaming && hasLiveActivity ? `${summary}...` : summary}</span>
       </button>
 
-      {/* Expanded content */}
+      {/* Expanded content — steps rendered in order */}
       {isExpanded && (
         <div className="mt-1 ml-2 pl-3 border-l-2 border-accent/30 space-y-3">
-          {/* Thinking section */}
-          {activity?.thinking && (
-            <ThinkingSection content={activity.thinking} />
-          )}
-
-          {/* Stored tool calls + results */}
-          {activity?.toolCalls.map((tc, idx) => (
-            <StoredToolCallRow
-              key={tc.id || idx}
-              toolCall={tc}
-              result={activity.toolResults.find(
-                r => r.tool_call_id === tc.id
-              )}
-            />
-          ))}
+          {/* Stored steps — interleaved thinking and tool calls */}
+          {visibleSteps.map((step, idx) => {
+            if (step.type === 'thinking') {
+              return <ThinkingSection key={`think-${idx}`} content={step.content} />;
+            }
+            if (step.type === 'tool_call') {
+              return (
+                <StoredToolCallRow
+                  key={step.toolCall.id || `tc-${idx}`}
+                  toolCall={step.toolCall}
+                  result={step.toolResult}
+                />
+              );
+            }
+            return null;
+          })}
 
           {/* Live tool calls during streaming */}
           {hasLiveActivity && activeToolCalls!.map(call => (

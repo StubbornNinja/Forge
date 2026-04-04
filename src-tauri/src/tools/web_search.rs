@@ -1,20 +1,39 @@
+use std::collections::HashMap;
+use std::time::Instant;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
 
 use super::registry::Tool;
+use super::search::{format_results, SearchProvider};
 use crate::Result;
 
-pub struct WebSearchTool {
-    searxng_url: String,
-    client: reqwest::Client,
+/// Cached search result entry.
+struct CacheEntry {
+    result: String,
+    created_at: Instant,
 }
 
+pub struct WebSearchTool {
+    provider: Box<dyn SearchProvider>,
+    cache: Mutex<HashMap<String, CacheEntry>>,
+}
+
+const CACHE_TTL_SECS: u64 = 300; // 5 minutes
+const MAX_CACHE_ENTRIES: usize = 100;
+
 impl WebSearchTool {
-    pub fn new(searxng_url: String) -> Self {
+    pub fn new(provider: Box<dyn SearchProvider>) -> Self {
         Self {
-            searxng_url: searxng_url.trim_end_matches('/').to_string(),
-            client: reqwest::Client::new(),
+            provider,
+            cache: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Build a cache key from provider name, query, and result count.
+    fn cache_key(provider_name: &str, query: &str, num_results: usize) -> String {
+        format!("{}:{}:{}", provider_name, query.to_lowercase(), num_results)
     }
 }
 
@@ -25,7 +44,7 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web using SearXNG. Returns relevant search results for a given query."
+        "Search the web for current information. Returns relevant search results for a given query."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -53,49 +72,42 @@ impl Tool for WebSearchTool {
 
         let num_results = arguments["num_results"].as_u64().unwrap_or(5) as usize;
 
-        let url = format!("{}/search", self.searxng_url);
-        let resp = self
-            .client
-            .get(&url)
-            .query(&[
-                ("q", query),
-                ("format", "json"),
-                ("categories", "general"),
-            ])
-            .send()
-            .await
-            .map_err(|e| crate::ForgeError::Tool(format!("Search request failed: {}", e)))?;
-
-        if !resp.status().is_success() {
-            return Err(crate::ForgeError::Tool(format!(
-                "Search returned status {}",
-                resp.status()
-            )));
+        // Check cache
+        let key = Self::cache_key(self.provider.name(), query, num_results);
+        {
+            let cache = self.cache.lock().await;
+            if let Some(entry) = cache.get(&key) {
+                if entry.created_at.elapsed().as_secs() < CACHE_TTL_SECS {
+                    return Ok(entry.result.clone());
+                }
+            }
         }
 
-        let body: Value = resp
-            .json()
-            .await
-            .map_err(|e| crate::ForgeError::Tool(format!("Failed to parse search response: {}", e)))?;
+        // Execute search
+        let results = self.provider.search(query, num_results).await?;
+        let formatted = format_results(&results);
 
-        let results = body["results"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .take(num_results)
-                    .map(|r| {
-                        format!(
-                            "**{}**\n{}\nURL: {}",
-                            r["title"].as_str().unwrap_or("Untitled"),
-                            r["content"].as_str().unwrap_or("No description"),
-                            r["url"].as_str().unwrap_or(""),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n\n---\n\n")
-            })
-            .unwrap_or_else(|| "No results found.".to_string());
+        // Store in cache (with LRU eviction)
+        {
+            let mut cache = self.cache.lock().await;
+            // Evict expired entries
+            cache.retain(|_, v| v.created_at.elapsed().as_secs() < CACHE_TTL_SECS);
+            // If still over limit, remove oldest
+            while cache.len() >= MAX_CACHE_ENTRIES {
+                if let Some(oldest_key) = cache
+                    .iter()
+                    .min_by_key(|(_, v)| v.created_at)
+                    .map(|(k, _)| k.clone())
+                {
+                    cache.remove(&oldest_key);
+                }
+            }
+            cache.insert(key, CacheEntry {
+                result: formatted.clone(),
+                created_at: Instant::now(),
+            });
+        }
 
-        Ok(results)
+        Ok(formatted)
     }
 }
