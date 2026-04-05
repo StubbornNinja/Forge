@@ -10,6 +10,7 @@ import { useConnectionStore } from './stores/connectionStore';
 import { initSidecarEvents, cleanupSidecarEvents } from './stores/sidecarStore';
 import { useNotificationStore } from './stores/notificationStore';
 import { api } from './lib/tauri';
+import { check } from '@tauri-apps/plugin-updater';
 import { SetupWizard } from './components/onboarding/SetupWizard';
 
 function App() {
@@ -86,6 +87,41 @@ function App() {
       // Silently ignore — network may be unavailable
     });
   }, [settings?.has_completed_setup, settings?.inference_mode]);
+
+  // Check for Forge app updates on startup
+  useEffect(() => {
+    if (!settings || !settings.has_completed_setup) return;
+
+    check().then((update) => {
+      if (update) {
+        useNotificationStore.getState().addNotification({
+          id: 'forge-update',
+          message: `Forge v${update.version} available`,
+          action: {
+            label: 'Update',
+            handler: () => {
+              useNotificationStore.getState().addNotification({
+                id: 'forge-update',
+                message: `Downloading Forge v${update.version}...`,
+                dismissable: false,
+              });
+              update.downloadAndInstall().catch((err) => {
+                console.error('Update failed:', err);
+                useNotificationStore.getState().addNotification({
+                  id: 'forge-update',
+                  message: 'Update failed. Try again later.',
+                  dismissable: true,
+                });
+              });
+            },
+          },
+          dismissable: true,
+        });
+      }
+    }).catch(() => {
+      // Silently ignore — updater not configured or network unavailable
+    });
+  }, [settings?.has_completed_setup]);
 
   // Track fullscreen state — traffic lights disappear when fullscreen
   useEffect(() => {
