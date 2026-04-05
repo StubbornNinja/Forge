@@ -5,10 +5,92 @@ import { useConnectionStore } from '../../stores/connectionStore';
 import { useModelStore, initModelEvents, cleanupModelEvents } from '../../stores/modelStore';
 import { useSidecarStore, initSidecarEvents, cleanupSidecarEvents } from '../../stores/sidecarStore';
 import { api } from '../../lib/tauri';
-import { ModelBrowser } from '../models/ModelBrowser';
-import type { ModelInfo } from '../../lib/types';
+import { DownloadProgress } from '../models/DownloadProgress';
+import type { ModelInfo, CatalogModel } from '../../lib/types';
 
 type Step = 'welcome' | 'choose-mode' | 'download-model' | 'connect' | 'model' | 'ready';
+
+function formatSize(bytes: number): string {
+  return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
+}
+
+/** Simplified model cards for the setup wizard — one-click download, no quant picker. */
+function SimpleModelCards({ onModelReady }: { onModelReady: (modelId: string, filePath: string) => void }) {
+  const { catalog, installed, downloading, downloadModel, cancelDownload } = useModelStore();
+
+  useEffect(() => {
+    useModelStore.getState().loadCatalog();
+    useModelStore.getState().loadInstalled();
+  }, []);
+
+  // Filter out title-gen model
+  const visible = catalog.filter((m: CatalogModel) => m.id !== 'qwen3-0.6b');
+
+  const handleDownload = async (model: CatalogModel) => {
+    const variant = model.variants.find((v) => v.recommended) || model.variants[0];
+    if (!variant) return;
+    try {
+      const result = await downloadModel(model.id, variant.quant);
+      onModelReady(result.id, result.file_path);
+    } catch (err) {
+      console.error('Download failed:', err);
+    }
+  };
+
+  return (
+    <>
+      {visible.map((model) => {
+        const variant = model.variants.find((v) => v.recommended) || model.variants[0];
+        const isInstalled = installed.some((m) => m.catalog_id === model.id);
+        const isDownloading = downloading?.model_id === model.id;
+
+        return (
+          <div
+            key={model.id}
+            className={`glass border rounded-xl px-4 py-3 ${
+              isInstalled ? 'border-green-500/20' : 'border-[var(--glass-border)]'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-semibold text-text-primary">{model.display_name}</h4>
+                  {isInstalled && (
+                    <span className="text-[10px] text-green-400 bg-green-400/10 px-1.5 py-0.5 rounded-full">
+                      Installed
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-text-muted mt-0.5">{model.description}</p>
+                <div className="flex gap-2 mt-1.5 text-[10px] text-text-muted">
+                  <span className="bg-[var(--input-bg)] px-1.5 py-0.5 rounded">
+                    {variant ? formatSize(variant.size_bytes) : '?'}
+                  </span>
+                  <span className="bg-[var(--input-bg)] px-1.5 py-0.5 rounded">
+                    {model.recommended_ram_gb} GB+ RAM
+                  </span>
+                </div>
+              </div>
+              {!isInstalled && !isDownloading && (
+                <button
+                  onClick={() => handleDownload(model)}
+                  className="flex-shrink-0 px-3 py-1.5 text-xs bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors"
+                >
+                  Download
+                </button>
+              )}
+            </div>
+            {isDownloading && downloading && (
+              <div className="mt-2">
+                <DownloadProgress progress={downloading} onCancel={cancelDownload} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
 
 export function SetupWizard() {
   const { showSetupWizard, setShowSetupWizard } = useUIStore();
@@ -165,15 +247,15 @@ export function SetupWizard() {
             </div>
           )}
 
-          {/* Download Model */}
+          {/* Download Model — simplified cards, no quant picker */}
           {step === 'download-model' && (
             <div className="flex-1 space-y-4">
-              <h3 className="text-lg font-semibold text-text-primary">Choose a model to download</h3>
+              <h3 className="text-lg font-semibold text-text-primary">Choose a model</h3>
               <p className="text-xs text-text-muted">
-                Select a model and quantization. Forge will download it and run it locally.
+                Pick a model to download. You can get more options later in Settings.
               </p>
-              <div className="max-h-[280px] overflow-y-auto -mx-2 px-2">
-                <ModelBrowser onModelReady={handleModelReady} />
+              <div className="max-h-[280px] overflow-y-auto -mx-2 px-2 space-y-3">
+                <SimpleModelCards onModelReady={handleModelReady} />
               </div>
             </div>
           )}

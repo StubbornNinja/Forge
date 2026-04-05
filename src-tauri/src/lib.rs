@@ -250,6 +250,9 @@ pub fn run() {
             commands::models::cancel_model_download,
             commands::models::delete_model,
             commands::models::get_system_info,
+            commands::models::search_hf_models,
+            commands::models::list_hf_files,
+            commands::models::download_hf_model,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

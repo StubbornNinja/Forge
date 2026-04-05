@@ -6,6 +6,7 @@ import { useConnectionStore } from '../../stores/connectionStore';
 import { useModelStore } from '../../stores/modelStore';
 import { api, events } from '../../lib/tauri';
 import type { Message, StructuredError, ModelInfo } from '../../lib/types';
+import { formatQuant } from '../../lib/format';
 
 export function InputArea() {
   const [input, setInput] = useState('');
@@ -226,7 +227,7 @@ export function InputArea() {
 
   // Build unified model list and current selection based on mode
   const models = inferenceMode === 'local'
-    ? installedModels.map((m) => ({ id: m.id, label: `${m.filename} (${m.quant})` }))
+    ? installedModels.map((m) => ({ id: m.id, label: `${m.filename} (${formatQuant(m.quant)})` }))
     : serverModels.map((m) => ({ id: m.id, label: shortModelName(m.id) }));
   const currentModel = inferenceMode === 'local' ? settings?.local_model_id : settings?.default_model;
 

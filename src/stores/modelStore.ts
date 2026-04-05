@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api, events } from '../lib/tauri';
-import type { CatalogModel, InstalledModel, ModelDownloadProgress } from '../lib/types';
+import type { CatalogModel, InstalledModel, ModelDownloadProgress, HfModelResult, HfGgufFile } from '../lib/types';
 
 interface ModelState {
   catalog: CatalogModel[];
@@ -11,6 +11,9 @@ interface ModelState {
   loadCatalog: () => Promise<void>;
   loadInstalled: () => Promise<void>;
   downloadModel: (catalogId: string, quant: string) => Promise<InstalledModel>;
+  downloadHfModel: (hfRepo: string, filename: string) => Promise<InstalledModel>;
+  searchHf: (query: string) => Promise<HfModelResult[]>;
+  listHfFiles: (repoId: string) => Promise<HfGgufFile[]>;
   cancelDownload: () => Promise<void>;
   deleteModel: (modelId: string) => Promise<void>;
   setDownloadProgress: (progress: ModelDownloadProgress | null) => void;
@@ -44,10 +47,24 @@ export const useModelStore = create<ModelState>()((set, get) => ({
 
   downloadModel: async (catalogId: string, quant: string) => {
     const model = await api.downloadModel(catalogId, quant);
-    // Refresh installed list
     await get().loadInstalled();
     set({ downloading: null });
     return model;
+  },
+
+  downloadHfModel: async (hfRepo: string, filename: string) => {
+    const model = await api.downloadHfModel(hfRepo, filename);
+    await get().loadInstalled();
+    set({ downloading: null });
+    return model;
+  },
+
+  searchHf: async (query: string) => {
+    return api.searchHfModels(query);
+  },
+
+  listHfFiles: async (repoId: string) => {
+    return api.listHfFiles(repoId);
   },
 
   cancelDownload: async () => {

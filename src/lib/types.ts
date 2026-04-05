@@ -179,6 +179,17 @@ export interface FileMetadata {
   extracted_text?: string;
 }
 
+export interface HfModelResult {
+  id: string;
+  downloads: number;
+  likes: number;
+}
+
+export interface HfGgufFile {
+  filename: string;
+  size_bytes: number;
+}
+
 export interface StructuredError {
   category: string;
   title: string;

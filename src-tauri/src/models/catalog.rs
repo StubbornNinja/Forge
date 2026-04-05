@@ -56,6 +56,35 @@ pub fn get_catalog() -> Vec<CatalogEntry> {
             description: "Fast, capable reasoning model. Great for coding, analysis, and general chat.",
         },
         CatalogEntry {
+            id: "gemma4-e2b",
+            display_name: "Gemma 4 E2B",
+            family: "gemma4",
+            hf_repo: "unsloth/gemma-4-E2B-it-GGUF",
+            variants: vec![
+                QuantVariant {
+                    quant: "Q4_K_M",
+                    filename: "gemma-4-E2B-it-Q4_K_M.gguf",
+                    size_bytes: 3_110_000_000,
+                    recommended: true,
+                },
+                QuantVariant {
+                    quant: "Q8_0",
+                    filename: "gemma-4-E2B-it-Q8_0.gguf",
+                    size_bytes: 5_050_000_000,
+                    recommended: false,
+                },
+            ],
+            recommended_ram_gb: 6,
+            context_length: 131072,
+            supports_tool_use: true,
+            server_args: vec![
+                "--jinja".to_string(),
+                "--reasoning-format".to_string(),
+                "auto".to_string(),
+            ],
+            description: "Compact model with strong performance for its size. Good for everyday chat and quick tasks.",
+        },
+        CatalogEntry {
             id: "gemma4-26b-moe",
             display_name: "Gemma 4 26B MoE",
             family: "gemma4",

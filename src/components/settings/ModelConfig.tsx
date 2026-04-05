@@ -6,6 +6,7 @@ import { useSidecarStore } from '../../stores/sidecarStore';
 import { api, events } from '../../lib/tauri';
 import { ModelBrowser } from '../models/ModelBrowser';
 import type { ModelInfo, UpdateCheckResult } from '../../lib/types';
+import { formatQuant } from '../../lib/format';
 
 export function ModelConfig() {
   const { settings, updateSettings } = useSettingsStore();
@@ -115,7 +116,7 @@ export function ModelConfig() {
               <div className="flex items-center justify-between glass border border-[var(--glass-border)] rounded-lg px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-text-primary">{selectedLocalModel.filename}</p>
-                  <p className="text-xs text-text-muted">{selectedLocalModel.quant} — {(selectedLocalModel.size_bytes / 1_073_741_824).toFixed(1)} GB</p>
+                  <p className="text-xs text-text-muted">{formatQuant(selectedLocalModel.quant)} — {(selectedLocalModel.size_bytes / 1_073_741_824).toFixed(1)} GB</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${
@@ -138,7 +139,7 @@ export function ModelConfig() {
                 className="w-full mt-2 bg-surface-secondary text-text-primary rounded-lg px-3 py-2 text-sm border border-border focus:outline-none focus:border-accent"
               >
                 {installed.map((m) => (
-                  <option key={m.id} value={m.id}>{m.filename} ({m.quant})</option>
+                  <option key={m.id} value={m.id}>{m.filename} ({formatQuant(m.quant)})</option>
                 ))}
               </select>
             )}

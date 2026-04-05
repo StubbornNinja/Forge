@@ -11,6 +11,8 @@ import type {
   ModelInfo,
   SearchResult,
   FileMetadata,
+  HfModelResult,
+  HfGgufFile,
   StructuredError,
   CatalogModel,
   InstalledModel,
@@ -107,6 +109,16 @@ export const api = {
 
   getSystemInfo: () =>
     invoke<SystemInfo>('get_system_info'),
+
+  // HuggingFace
+  searchHfModels: (query: string) =>
+    invoke<HfModelResult[]>('search_hf_models', { query }),
+
+  listHfFiles: (repoId: string) =>
+    invoke<HfGgufFile[]>('list_hf_files', { repoId }),
+
+  downloadHfModel: (hfRepo: string, filename: string) =>
+    invoke<InstalledModel>('download_hf_model', { hfRepo, filename }),
 };
 
 // Event listeners for streaming
