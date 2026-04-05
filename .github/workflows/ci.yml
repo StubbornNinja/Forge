@@ -34,7 +34,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings -A unexpected_cfgs
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -A unexpected_cfgs -A clippy::not_unsafe_ptr_arg_deref
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml

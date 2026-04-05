@@ -3,7 +3,6 @@
 /// Each profile describes how a model family handles reasoning/thinking
 /// and what parameters control it. Adding support for a new model is just
 /// a matter of adding an entry to `PROFILES`.
-
 /// How the model exposes chain-of-thought reasoning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReasoningStyle {

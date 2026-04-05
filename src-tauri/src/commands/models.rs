@@ -192,7 +192,7 @@ pub async fn search_hf_models(query: String) -> Result<Vec<HfModelResult>> {
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|e| ForgeError::Network(e))?;
+        .map_err(ForgeError::Network)?;
 
     if !resp.status().is_success() {
         return Err(ForgeError::General(format!(
@@ -204,7 +204,7 @@ pub async fn search_hf_models(query: String) -> Result<Vec<HfModelResult>> {
     let items: Vec<HfModelApiItem> = resp
         .json()
         .await
-        .map_err(|e| ForgeError::Network(e))?;
+        .map_err(ForgeError::Network)?;
 
     Ok(items
         .into_iter()
@@ -230,7 +230,7 @@ pub async fn list_hf_files(repo_id: String) -> Result<Vec<HfGgufFile>> {
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|e| ForgeError::Network(e))?;
+        .map_err(ForgeError::Network)?;
 
     if !resp.status().is_success() {
         return Err(ForgeError::General(format!(
@@ -242,7 +242,7 @@ pub async fn list_hf_files(repo_id: String) -> Result<Vec<HfGgufFile>> {
     let items: Vec<HfTreeItem> = resp
         .json()
         .await
-        .map_err(|e| ForgeError::Network(e))?;
+        .map_err(ForgeError::Network)?;
 
     Ok(items
         .into_iter()
@@ -267,8 +267,8 @@ pub async fn download_hf_model(
 ) -> Result<InstalledModel> {
     // Derive a catalog-style ID from the repo name
     let catalog_id = hf_repo
-        .split('/')
-        .last()
+        .rsplit('/')
+        .next()
         .unwrap_or(&hf_repo)
         .to_lowercase()
         .replace("-gguf", "")

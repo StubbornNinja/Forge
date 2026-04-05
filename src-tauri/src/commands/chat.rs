@@ -5,7 +5,7 @@ use tokio_util::sync::CancellationToken;
 use crate::db::models::NewMessage;
 use crate::inference::model_profile::{self, ReasoningStyle};
 use crate::inference::provider::ModelProvider;
-use crate::inference::types::{ChatMessage, ChatRequest, StreamDelta, ToolCall};
+use crate::inference::types::{ChatMessage, ChatRequest, ToolCall};
 use crate::orchestrator::agent::execute_tool_calls;
 use crate::system_prompt::builder::build_system_prompt;
 use crate::{AppState, ForgeError, Result};

@@ -9,6 +9,7 @@ use crate::{ForgeError, Result};
 
 const HEALTH_POLL_INTERVAL_MS: u64 = 500;
 const HEALTH_TIMEOUT_SECS: u64 = 120;
+#[allow(dead_code)]
 const MAX_RESTART_ATTEMPTS: u32 = 3;
 const PORT_RANGE_START: u16 = 39281;
 const PORT_RANGE_END: u16 = 39290;
