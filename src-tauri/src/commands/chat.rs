@@ -741,14 +741,11 @@ fn strip_line(line: &str) -> String {
     s
 }
 
-/// Default model for title generation — a tiny, fast model that won't overthink.
-const DEFAULT_TITLE_MODEL: &str = "unsloth/Qwen3-0.6B-GGUF";
-
 /// Generate a short conversation title from the first user message.
 /// Spawned as a background task so it doesn't block the chat response.
 fn spawn_title_generation(
     app: tauri::AppHandle,
-    _model: String,
+    chat_model: String,
     conversation_id: String,
     user_message: String,
 ) {
@@ -757,13 +754,24 @@ fn spawn_title_generation(
 
         let state = app.state::<AppState>();
 
-        // Read the title model from settings, falling back to the default small model
+        // In local mode the sidecar only serves one model, so we must use the
+        // chat model for title generation. In external mode, use the configured
+        // title_model (or fall back to the chat model).
         let title_model = {
             let settings = state.settings.read().ok();
-            settings
-                .and_then(|s| s.title_model.clone())
-                .filter(|m| !m.is_empty())
-                .unwrap_or_else(|| DEFAULT_TITLE_MODEL.to_string())
+            let mode = settings.as_ref()
+                .and_then(|s| s.inference_mode.as_deref())
+                .unwrap_or("external");
+
+            if mode == "local" {
+                // Sidecar only has the chat model loaded — use it
+                chat_model.clone()
+            } else {
+                settings
+                    .and_then(|s| s.title_model.clone())
+                    .filter(|m| !m.is_empty())
+                    .unwrap_or_else(|| chat_model.clone())
+            }
         };
 
         // Truncate long user messages to avoid blowing up the title prompt

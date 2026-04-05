@@ -206,6 +206,8 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 let main_window = app.get_webview_window("main").unwrap();
+                let ns_win = main_window.ns_window().expect("NS window") as cocoa::base::id;
+                crate::macos::set_window_background_color(ns_win);
                 crate::macos::setup_traffic_light_positioner(main_window, 14.0, 40.0);
             }
 
@@ -220,6 +222,7 @@ pub fn run() {
             commands::conversations::list_conversations,
             commands::conversations::get_messages,
             commands::conversations::delete_conversation,
+            commands::conversations::delete_all_conversations,
             commands::conversations::rename_conversation,
             // Settings
             commands::settings::get_settings,

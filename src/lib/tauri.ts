@@ -40,6 +40,9 @@ export const api = {
   deleteConversation: (id: string) =>
     invoke<void>('delete_conversation', { id }),
 
+  deleteAllConversations: () =>
+    invoke<number>('delete_all_conversations'),
+
   renameConversation: (id: string, title: string) =>
     invoke<void>('rename_conversation', { id, title }),
 

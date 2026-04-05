@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+/* Prevent macOS rubber-band overscroll bounce on the whole app */
+html, body {
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+/* Prevent text selection on UI chrome — allow it in chat content and inputs */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Re-enable selection where it matters */
+textarea,
+input,
+.prose-sm,
+[contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 @theme {
   --color-surface-primary: var(--surface-primary);
   --color-surface-secondary: var(--surface-secondary);

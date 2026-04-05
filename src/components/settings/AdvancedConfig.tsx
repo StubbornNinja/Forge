@@ -1,7 +1,11 @@
+import { useState } from 'react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useUIStore } from '../../stores/uiStore';
+import { useChatStore } from '../../stores/chatStore';
+import { useConversationStore } from '../../stores/conversationStore';
+import { api } from '../../lib/tauri';
 
-export function GeneralConfig() {
+export function AdvancedConfig() {
   const { settings, updateSettings } = useSettingsStore();
   const { setShowSetupWizard, setSettingsOpen } = useUIStore();
 
@@ -11,66 +15,40 @@ export function GeneralConfig() {
 
   return (
     <div className="space-y-6">
-      {/* Theme */}
+      {/* Temperature */}
       <div>
         <label className="block text-sm font-medium text-text-secondary mb-2">
-          Theme
+          Temperature: {settings.temperature.toFixed(1)}
         </label>
-        <select
-          value={settings.theme}
-          onChange={(e) => updateSettings({ theme: e.target.value as 'system' | 'light' | 'dark' })}
-          className="w-full bg-surface-secondary text-text-primary rounded-lg px-3 py-2 text-sm border border-border focus:outline-none focus:border-accent"
-        >
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-      </div>
-
-      {/* Send shortcut */}
-      <div>
-        <label className="block text-sm font-medium text-text-secondary mb-2">
-          Send Message Shortcut
-        </label>
-        <div className="flex gap-3">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name="sendShortcut"
-              checked={settings.send_shortcut === 'Enter'}
-              onChange={() => updateSettings({ send_shortcut: 'Enter' })}
-              className="accent-accent"
-            />
-            <span className="text-sm text-text-primary">Enter</span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name="sendShortcut"
-              checked={settings.send_shortcut === 'Ctrl+Enter'}
-              onChange={() => updateSettings({ send_shortcut: 'Ctrl+Enter' })}
-              className="accent-accent"
-            />
-            <span className="text-sm text-text-primary">Ctrl+Enter</span>
-          </label>
+        <input
+          type="range"
+          min="0"
+          max="2"
+          step="0.1"
+          value={settings.temperature}
+          onChange={(e) => updateSettings({ temperature: parseFloat(e.target.value) })}
+          className="w-full accent-accent"
+        />
+        <div className="flex justify-between text-xs text-text-muted mt-1">
+          <span>Precise (0)</span>
+          <span>Creative (2)</span>
         </div>
       </div>
 
-      {/* Title Generation Model */}
+      {/* Max tokens */}
       <div>
         <label className="block text-sm font-medium text-text-secondary mb-2">
-          Title Generation Model
+          Max Tokens
         </label>
         <input
-          type="text"
-          value={settings.title_model || ''}
-          onChange={(e) => updateSettings({ title_model: e.target.value || undefined })}
+          type="number"
+          value={settings.max_tokens}
+          onChange={(e) => updateSettings({ max_tokens: parseInt(e.target.value) || 4096 })}
           className="w-full bg-surface-secondary text-text-primary rounded-lg px-3 py-2 text-sm border border-border focus:outline-none focus:border-accent"
-          placeholder="unsloth/Qwen3-0.6B-GGUF"
+          min={256}
+          max={128000}
+          step={256}
         />
-        <p className="text-xs text-text-muted mt-1">
-          A small, fast model for generating conversation titles.
-        </p>
       </div>
 
       {/* Search section */}
@@ -110,7 +88,7 @@ export function GeneralConfig() {
               </p>
             </div>
 
-            {/* Brave API key — shown for auto or brave */}
+            {/* Brave API key */}
             {(searchBackend === 'auto' || searchBackend === 'brave') && (
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-2">
@@ -126,7 +104,7 @@ export function GeneralConfig() {
               </div>
             )}
 
-            {/* SearXNG URL — shown for auto or searxng */}
+            {/* SearXNG URL */}
             {(searchBackend === 'auto' || searchBackend === 'searxng') && (
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-2">
@@ -201,6 +179,67 @@ export function GeneralConfig() {
           Run setup wizard again
         </button>
       </div>
+
+      {/* Danger zone */}
+      <DeleteAllChats />
+    </div>
+  );
+}
+
+function DeleteAllChats() {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await api.deleteAllConversations();
+      // Reset frontend state
+      useChatStore.getState().setMessages([]);
+      useChatStore.getState().setActiveConversation(null);
+      useChatStore.getState().enterDraft();
+      useConversationStore.getState().loadConversations();
+      setConfirming(false);
+    } catch (err) {
+      console.error('Failed to delete conversations:', err);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="pt-4 border-t border-red-500/20">
+      <h3 className="text-sm font-medium text-red-400 mb-3">Danger Zone</h3>
+
+      {!confirming ? (
+        <button
+          onClick={() => setConfirming(true)}
+          className="text-sm text-red-400 hover:text-red-300 transition-colors"
+        >
+          Delete all conversations
+        </button>
+      ) : (
+        <div className="glass border border-red-500/20 rounded-lg px-4 py-3 space-y-3 animate-fadeIn">
+          <p className="text-sm text-red-300">
+            This will permanently delete all conversations and messages. This cannot be undone.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {deleting ? 'Deleting...' : 'Yes, delete everything'}
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              className="px-3 py-1.5 hover:bg-[var(--hover-bg)] text-text-muted rounded-lg text-sm transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

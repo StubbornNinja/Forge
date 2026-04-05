@@ -17,10 +17,11 @@
         "height": 600,
         "resizable": true,
         "fullscreen": false,
-        "minWidth": 520,
-        "minHeight": 400,
+        "minWidth": 700,
+        "minHeight": 500,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "backgroundColor": "#0a0a0f"
       }
     ],
     "security": {

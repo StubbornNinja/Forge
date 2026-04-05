@@ -40,6 +40,14 @@ pub async fn delete_conversation(
 }
 
 #[tauri::command]
+pub async fn delete_all_conversations(
+    state: State<'_, AppState>,
+) -> Result<u64> {
+    let db = state.db.lock().map_err(|e| ForgeError::General(e.to_string()))?;
+    crate::db::conversations::delete_all_conversations(&db)
+}
+
+#[tauri::command]
 pub async fn rename_conversation(
     state: State<'_, AppState>,
     id: String,

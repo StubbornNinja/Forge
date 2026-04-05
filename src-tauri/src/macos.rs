@@ -1,8 +1,24 @@
-use cocoa::appkit::{NSView, NSWindow, NSWindowButton};
+use cocoa::appkit::{NSColor, NSView, NSWindow, NSWindowButton};
 use cocoa::base::id;
 use cocoa::foundation::NSRect;
 use objc::{msg_send, sel, sel_impl};
 use tauri::{Runtime, WebviewWindow};
+
+/// Set the native window background color to match the app theme,
+/// preventing white/grey flashes during resize.
+pub fn set_window_background_color(ns_window: id) {
+    unsafe {
+        // Match --surface-primary dark theme: #0a0a0f
+        let bg = NSColor::colorWithSRGBRed_green_blue_alpha_(
+            cocoa::base::nil,
+            10.0 / 255.0,  // r
+            10.0 / 255.0,  // g
+            15.0 / 255.0,  // b
+            1.0,
+        );
+        ns_window.setBackgroundColor_(bg);
+    }
+}
 
 pub fn position_traffic_lights(ns_window: id, x: f64, y: f64) {
     unsafe {

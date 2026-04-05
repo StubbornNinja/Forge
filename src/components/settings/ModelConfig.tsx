@@ -7,11 +7,7 @@ import { api, events } from '../../lib/tauri';
 import { ModelBrowser } from '../models/ModelBrowser';
 import type { ModelInfo, UpdateCheckResult } from '../../lib/types';
 
-interface ModelConfigProps {
-  mode?: 'simple' | 'advanced';
-}
-
-export function ModelConfig({ mode = 'advanced' }: ModelConfigProps) {
+export function ModelConfig() {
   const { settings, updateSettings } = useSettingsStore();
   const { installed, loadInstalled } = useModelStore();
   const sidecarStatus = useSidecarStore((s) => s.status);
@@ -231,45 +227,6 @@ export function ModelConfig({ mode = 'advanced' }: ModelConfigProps) {
         </>
       )}
 
-      {/* Temperature — advanced only */}
-      {mode === 'advanced' && (
-        <div>
-          <label className="block text-sm font-medium text-text-secondary mb-2">
-            Temperature: {settings.temperature.toFixed(1)}
-          </label>
-          <input
-            type="range"
-            min="0"
-            max="2"
-            step="0.1"
-            value={settings.temperature}
-            onChange={(e) => updateSettings({ temperature: parseFloat(e.target.value) })}
-            className="w-full accent-accent"
-          />
-          <div className="flex justify-between text-xs text-text-muted mt-1">
-            <span>Precise (0)</span>
-            <span>Creative (2)</span>
-          </div>
-        </div>
-      )}
-
-      {/* Max tokens — advanced only */}
-      {mode === 'advanced' && (
-        <div>
-          <label className="block text-sm font-medium text-text-secondary mb-2">
-            Max Tokens
-          </label>
-          <input
-            type="number"
-            value={settings.max_tokens}
-            onChange={(e) => updateSettings({ max_tokens: parseInt(e.target.value) || 4096 })}
-            className="w-full bg-surface-secondary text-text-primary rounded-lg px-3 py-2 text-sm border border-border focus:outline-none focus:border-accent"
-            min={256}
-            max={128000}
-            step={256}
-          />
-        </div>
-      )}
     </div>
   );
 }

@@ -109,6 +109,11 @@ pub fn delete_conversation(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn delete_all_conversations(conn: &Connection) -> Result<u64> {
+    let count = conn.execute("DELETE FROM conversations", [])?;
+    Ok(count as u64)
+}
+
 pub fn touch_conversation(conn: &Connection, id: &str) -> Result<()> {
     conn.execute(
         "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?1",
