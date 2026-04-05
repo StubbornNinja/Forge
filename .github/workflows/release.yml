@@ -38,6 +38,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Forge ${{ github.ref_name }}'
           releaseBody: 'See the assets below to download and install.'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true
           args: --target aarch64-apple-darwin
