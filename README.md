@@ -20,18 +20,17 @@ Forge connects to local inference servers (LM Studio, llama.cpp, MLX) via the Op
 
 Grab the latest `.dmg` from [Releases](https://github.com/StubbornNinja/Forge/releases).
 
-- **Apple Silicon** (M1/M2/M3/M4): `Forge_x.x.x_aarch64.dmg`
-- **Intel Mac**: `Forge_x.x.x_x64.dmg`
+Requires **Apple Silicon** (M1/M2/M3/M4).
 
 ### Install
 
 1. Open the `.dmg` and drag **Forge** to your Applications folder
-2. Launch Forge from Applications
-3. macOS will show a security warning since the app isn't code-signed yet:
-   - Go to **System Settings > Privacy & Security**
-   - Scroll down and click **"Open Anyway"** next to the Forge message
-   - Or: right-click the app > **Open** > click **Open** in the dialog
-4. This only happens once — after that Forge launches normally
+2. Open **Terminal** and run:
+   ```bash
+   xattr -cr /Applications/Forge.app
+   ```
+   This removes the macOS quarantine flag (required because the app isn't code-signed yet).
+3. Launch Forge from Applications — it will open normally from now on
 
 ### First run
 
