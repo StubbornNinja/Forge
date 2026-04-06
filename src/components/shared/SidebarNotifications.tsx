@@ -18,10 +18,20 @@ export function SidebarNotifications() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
           </svg>
 
-          {/* Message */}
-          <span className="text-xs text-text-secondary flex-1 min-w-0 truncate">
-            {n.message}
-          </span>
+          {/* Message + optional progress */}
+          <div className="flex-1 min-w-0">
+            <span className="text-xs text-text-secondary truncate block">
+              {n.message}
+            </span>
+            {n.progress !== undefined && (
+              <div className="w-full h-1 bg-surface-tertiary rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-accent rounded-full transition-all duration-300"
+                  style={{ width: `${n.progress}%` }}
+                />
+              </div>
+            )}
+          </div>
 
           {/* Action button */}
           {n.action && (

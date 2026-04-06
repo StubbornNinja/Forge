@@ -100,16 +100,42 @@ function App() {
           action: {
             label: 'Update',
             handler: () => {
+              let downloadedBytes = 0;
+              let totalBytes = 0;
+
               useNotificationStore.getState().addNotification({
                 id: 'forge-update',
                 message: `Downloading Forge v${update.version}...`,
                 dismissable: false,
+                progress: 0,
               });
-              update.downloadAndInstall().catch((err) => {
-                console.error('Update failed:', err);
+
+              update.downloadAndInstall((event) => {
+                if (event.event === 'Started' && event.data?.contentLength) {
+                  totalBytes = event.data.contentLength;
+                } else if (event.event === 'Progress' && event.data?.chunkLength) {
+                  downloadedBytes += event.data.chunkLength;
+                  const pct = totalBytes > 0 ? Math.round((downloadedBytes / totalBytes) * 100) : 0;
+                  useNotificationStore.getState().addNotification({
+                    id: 'forge-update',
+                    message: `Downloading Forge v${update.version}... ${pct}%`,
+                    dismissable: false,
+                    progress: pct,
+                  });
+                } else if (event.event === 'Finished') {
+                  useNotificationStore.getState().addNotification({
+                    id: 'forge-update',
+                    message: 'Update installed! Relaunch Forge to use it.',
+                    dismissable: true,
+                    progress: 100,
+                  });
+                }
+              }).catch((err) => {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                console.error('Update failed:', errMsg);
                 useNotificationStore.getState().addNotification({
                   id: 'forge-update',
-                  message: 'Update failed. Try again later.',
+                  message: `Update failed: ${errMsg}`,
                   dismissable: true,
                 });
               });
@@ -118,8 +144,9 @@ function App() {
           dismissable: true,
         });
       }
-    }).catch(() => {
-      // Silently ignore — updater not configured or network unavailable
+    }).catch((err) => {
+      // Log updater errors for diagnosis but don't bother the user
+      console.error('Update check failed:', err);
     });
   }, [settings?.has_completed_setup]);
 

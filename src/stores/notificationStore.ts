@@ -8,6 +8,8 @@ export interface AppNotification {
     handler: () => void;
   };
   dismissable: boolean;
+  /** 0-100 progress percentage, undefined = no progress bar */
+  progress?: number;
 }
 
 interface NotificationState {
